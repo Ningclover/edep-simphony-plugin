@@ -1,4 +1,5 @@
 build/
+setup_env.sh
 *.npy
 *.root
 *.gdml
