@@ -1,0 +1,18 @@
+source:CSGOptiX__InitEvt
+creator:edep-sim
+uname:Linux wcgpu1.phy.bnl.gov 6.1.0-23-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.99-1 (2024-07-15) x86_64 GNU/Linux
+HOME:/nfs/data/1/xning
+USER:xning
+PWD:/nfs/data/1/xning/optic-gpu/edep-opticks-plugin
+${GEOM}_GEOMList:GEOM_GEOMList
+OPTICKS_INTEGRATION_MODE:1
+OPTICKS_KEY:GeoChain.X4GeoChain.wcgpu1.phy.bnl.gov
+OPTICKS_OUT_FOLD:/nfs/data/1/xning/tmp/opticks_output
+GPUMeta:0:NVIDIA_GeForce_RTX_4090 1:NVIDIA_GeForce_RTX_4090
+QSim__Switches:NOT-CONFIG_Debug,CONFIG_RelWithDebInfo,NOT-CONFIG_Release,NOT-CONFIG_MinSizeRel,NOT-PRODUCTION,WITH_CHILD,NOT-WITH_CUSTOM4,PLOG_LOCAL,NOT-DEBUG_PIDX,DEBUG_TAG,NOT-RNG_XORWOW,RNG_PHILOX,NOT-RNG_PHILITEOX,
+C4Version:NOT-WITH_CUSTOM4
+optixpath:/nfs/data/1/xning/optic-gpu/eic-opticks/install/lib/CSGOptiX7.ptx
+optixpath_mtime_str:2026-04-26T18:39:55..000
+optixpath_mtime:1777253995000000
+optixpath_age_secs:6061
+optixpath_age_days:0

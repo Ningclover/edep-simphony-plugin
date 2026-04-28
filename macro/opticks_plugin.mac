@@ -1,0 +1,23 @@
+# opticks_plugin.mac
+#
+# Include this file AFTER /run/initialize in your main simulation macro.
+# The physics process swap (EXTRAPHYSICS) is handled via env var before startup.
+#
+# Required environment (set via setup_env.sh before running edep-sim):
+#   PLUGIN_LIB             = path to libedep-opticks-plugin.so
+#   EXTRAPHYSICS           = "EXTERN:$(PLUGIN_LIB):CreatePhysicsConstructor"
+#   OPTICKS_INTEGRATION_MODE = 1
+#
+# edep-sim expands $(VAR) in macro commands.
+#
+# Load order matters: RunAction first, then EventAction, then StepAction.
+# Each factory stores a static pointer for the next factory to use.
+
+/edep/actions/loadUserRunAction   $(PLUGIN_LIB) CreateUserRunAction   unspecified
+/edep/actions/loadUserEventAction $(PLUGIN_LIB) CreateUserEventAction unspecified
+/edep/actions/loadUserStepAction  $(PLUGIN_LIB) CreateUserStepAction  unspecified
+
+# Keep optical photons killed on CPU — GPU handles all transport.
+# Do NOT register a SurfaceSD or call setStackPhotons true.
+/process/optical/scintillation/setStackPhotons false
+/process/optical/cerenkov/setStackPhotons false

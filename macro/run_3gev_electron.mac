@@ -1,0 +1,33 @@
+# run_3gev_electron.mac — complete edep-sim run with GPU optical photons
+#
+# Run with:
+#   source setup_env.sh
+#   edep-sim -p QGSP_BERT \
+#            -g /nfs/data/1/xning/optic-gpu/light_trap_ggd/lighttrap.gdml \
+#            -o /nfs/data/1/xning/tmp/gpu_optical_test.root \
+#            -e 10 \
+#            run_3gev_electron.mac
+#
+# The physics list is set via -p on the command line (not a macro command).
+# EXTRAPHYSICS env var (set by setup_env.sh) loads OpticsPhysicsSwap before /run/initialize.
+
+# ── Verbosity ──────────────────────────────────────────────────────────────
+/run/verbose 1
+
+# ── Finalize geometry and initialize ──────────────────────────────────────
+/edep/update
+/run/initialize
+
+# ── Load GPU optical plugin actions (must come after /run/initialize) ──────
+/control/execute /nfs/data/1/xning/optic-gpu/edep-opticks-plugin/macro/opticks_plugin.mac
+
+# ── Particle gun: 3 GeV electron along z-axis ─────────────────────────────
+# World is 100x100x100 cm (±500 mm). SiPMs are at y=251 mm, z=258 mm.
+# Start near -z edge, travel along +z through the LAr volume.
+/gps/particle e-
+/gps/energy 1 MeV
+/gps/position 0 0 -400 mm
+/gps/direction 0 0 1
+
+# ── Shoot events (use -e flag on command line instead) ────────────────────
+# /run/beamOn 10
