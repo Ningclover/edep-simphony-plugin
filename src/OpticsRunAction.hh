@@ -1,5 +1,6 @@
 #pragma once
 #include <G4UserRunAction.hh>
+#include <cstdint>
 
 class TTree;
 class TBranch;
@@ -18,6 +19,14 @@ public:
 
     /// Accessed by OpticsEventAction to fill the tree each event.
     TTree* GetGPUTree() const { return fGPUTree; }
+
+    // ── Debug accumulators (process-wide, reset at BeginOfRun) ───────────
+    // (4) total photon count from edep-sim's DokeBirks visE / 19.5 eV
+    // (5) total photons accepted by eic-opticks (sum of sgs.photons)
+    static double   sTotalEdepSimPhotons;     // photon-equivalents from DokeBirks
+    static int64_t  sTotalOpticksGenstepPhotons;
+    static int64_t  sStepCountInLAr;          // for sampling stats
+    static int64_t  sNewGenstepsThisRun;
 
 private:
     TTree* fGPUTree = nullptr;

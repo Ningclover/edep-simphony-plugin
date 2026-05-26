@@ -9,7 +9,19 @@ This project integrates **edep-sim** (Geant4 CPU simulation) with **eic-opticks*
 - eic-opticks ray-traces all photons in the event on GPU using OptiX
 - Both the CPU physics results and the GPU photon hits are written into one ROOT file
 
-**Demonstrated result**: 1000 × 1 MeV electrons in a LArTPC (lighttrap geometry), 13,229 GPU-simulated photons, 8 SiPM hits recorded — wavelengths 394–530 nm (visible Cerenkov), hit positions confirmed at the SiPM plane, TrackId=1 tracing every hit back to the primary electron.
+**Demonstrated result** (1000 × 1 MeV electrons in lighttrap geometry, `EDEPSIM_DOKEBIRKS_VISE=1`):
+
+| Quantity | Value |
+|---|---|
+| Charged steps in LAr | 22,836 |
+| Photons predicted by edep-sim DokeBirks `Σ visE / 19.5 eV` | 1.736 × 10⁷ |
+| Photons accepted by eic-opticks (GPU genstep sum) | 1.776 × 10⁷ |
+| SiPM hits recorded in `GPUPhotonHits` | 6,907 |
+| Photon process mix | 6,676 scintillation / 231 Cerenkov |
+| Wavelength range | 106–530 nm (median 479 nm; VUV scintillation + visible Cerenkov + WLS-shifted) |
+| Primary trackability | 95 unique TrackIds; TrackId=1 traces back to primary e⁻ |
+
+The pre-fix baseline (legacy `SCINTILLATIONYIELD × inline-Birks` path, 2-event short run) produced ~513 GPU photons and 0 SiPM hits — drift-field-dependent recombination was effectively absent. See the bug table below for the integration gap that was closed.
 
 ---
 
@@ -74,7 +86,8 @@ edep-sim process (one event)
 | `src/plugin_entry.cc` | `extern "C"` factory entry points |
 | `macro/run_3gev_electron.mac` | Run macro (particle gun, geometry update, plugin load) |
 | `macro/opticks_plugin.mac` | Loads plugin actions via `/edep/actions/load*` |
-| `setup_env.sh` | Sets all required environment variables |
+| `setup_env.example.sh` | Template for `setup_env.sh` — copy and edit the paths for your machine |
+| `setup_env.sh` (gitignored) | User-local copy of the template; sets all required environment variables |
 
 ### 4. Geometry
 - **lighttrap.gdml**: `/nfs/data/1/xning/optic-gpu/light_trap_ggd/lighttrap.gdml`
@@ -97,10 +110,23 @@ edep-sim process (one event)
 | Sensors not recognized | `sensor_count=0`, 0 hits | Default sensor ID requires "PMT" in name; wrote `LArTPCSensorIdentifier` using SD check |
 | Photons tracked on CPU | Run freezes after 2 events | `SurfaceDetector` aux tag sets `KillOpticalPhotons=false`; plugin forces it back to `true` in `BeginOfRunAction` |
 | LAr RINDEX=1.0 on GPU | `sampledRI=1.0`, cosTheta>1, unphysical | Switched to lighttrap.gdml which has proper LAr material properties |
+| GPU photon count field-blind | `(5) Total photons accepted by eic-opticks ≈ 513` vs `(4) DokeBirks predicted ≈ 38k`; SCINTILLATIONYIELD=0 in GDML, inline Birks ignores drift field | Set `EDEPSIM_DOKEBIRKS_VISE=1` — `Local_DsG4Scintillation::PostStepDoIt` now reads visE from `G4EmParameters::Instance()->GetEmSaturation()->VisibleEnergyDepositionAtAStep(&aStep)` (calls edep-sim's DokeBirks directly, so process-ordering doesn't matter) and divides by W=19.5 eV |
+| GPU buffer alloc OOM | `terminate called after throwing 'QUDA_Exception' ... QEvt::device_alloc_photon ... out of memory` (12 GB alloc fails on a partly-used 24 GB card) | Set `OPTICKS_MAX_SLOT=M1` (1e6 slots ≈ 64 MB; plenty for debug runs with <1e6 photons/event) |
 
 ---
 
 ## Environment Setup
+
+### Step 0: Create your `setup_env.sh`
+
+`setup_env.sh` is `.gitignored` because it hard-codes paths specific to one machine (spack view location, install prefixes, scratch folder, hostname). Copy the committed template and edit:
+
+```bash
+cp setup_env.example.sh setup_env.sh
+${EDITOR:-vi} setup_env.sh   # edit the "User-specific paths" block at the top
+```
+
+After that, `source setup_env.sh` is the single command that prepares the environment — it handles everything in Step 2 below for you. The remaining steps in this section document what `setup_env.sh` is doing, in case you need to debug it.
 
 ### Step 1: Activate the base spack environment
 
@@ -135,12 +161,25 @@ export EXTRAPHYSICS="EXTERN:${PLUGIN_LIB}:CreatePhysicsConstructor"
 # eic-opticks mode: 1 = GPU-only (no CPU photon tracking)
 export OPTICKS_INTEGRATION_MODE=1
 
+# Drift-field-aware photon yield: route edep-sim DokeBirks visE through
+# Local_DsG4Scintillation as the GPU photon-count source. Unset to revert
+# to the legacy SCINTILLATIONYIELD × inline-Birks path. (LAr-specific; W=19.5 eV)
+export EDEPSIM_DOKEBIRKS_VISE=1
+
+# Cap GPU photon-buffer slots. Default sizes for a 24 GB card and tries to
+# allocate ~12 GB; on a partly-used GPU this OOMs at QEvt::device_alloc_photon.
+# M1 = 1e6 slots ≈ 64 MB, enough for debug runs (<1e6 photons total per launch).
+# Raise for production-scale runs.
+export OPTICKS_MAX_SLOT=M1
+
 # PTX kernel path
 export CSGOptiX__ptxpath=${EICOPT_INST}/lib/CSGOptiX7.ptx
 
 # Output folder for eic-opticks numpy arrays (genstep.npy, hit.npy etc.)
 export OPTICKS_OUT_FOLD=/tmp/opticks_output
 ```
+
+The simplest path is to just `source setup_env.sh`, which sets all of the above (including `EDEPSIM_DOKEBIRKS_VISE=1` and `OPTICKS_MAX_SLOT=M1` by default) and skips the per-variable boilerplate.
 
 > **Warning**: Do NOT add any directory containing old conflicting versions of
 > Geant4, edepsim, or eic-opticks to `LD_LIBRARY_PATH`. These will override the

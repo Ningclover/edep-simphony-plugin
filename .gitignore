@@ -1,5 +1,22 @@
 build/
+install/
+
+# User-specific environment: contains absolute paths to this server's spack
+# view, install prefixes, scratch folders, hostname. Copy setup_env.example.sh
+# → setup_env.sh and edit the paths for your machine.
 setup_env.sh
+
+# Runtime artefacts produced by edep-sim / eic-opticks (often contain absolute
+# paths in run_meta.txt header rows).
 *.npy
 *.root
 *.gdml
+run_meta.txt
+log.txt
+*.log
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store

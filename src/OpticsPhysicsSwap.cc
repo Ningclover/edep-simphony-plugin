@@ -22,9 +22,8 @@ void OpticsPhysicsSwap::ConstructProcess()
     cerenkov->SetMaxBetaChangePerStep(10.0);
     cerenkov->SetTrackSecondariesFirst(true);
 
-    // opticksMode=0 means the scintillation process runs normally
-    // (genstep collection is done in its PostStepDoIt via U4::CollectGenstep_*)
-    auto* scintillation = new Local_DsG4Scintillation(0);
+    // opticksMode=1: bit-0 enables U4::CollectGenstep_* in the STANDALONE path
+    auto* scintillation = new Local_DsG4Scintillation(1);
     scintillation->SetTrackSecondariesFirst(true);
 
     G4ParticleTable* table = G4ParticleTable::GetParticleTable();

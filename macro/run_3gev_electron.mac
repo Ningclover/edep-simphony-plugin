@@ -30,4 +30,4 @@
 /gps/direction 0 0 1
 
 # ── Shoot events (use -e flag on command line instead) ────────────────────
-# /run/beamOn 10
+# /run/beamOn 1

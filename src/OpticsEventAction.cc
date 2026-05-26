@@ -3,6 +3,10 @@
 #include "OpticsStepAction.hh"
 
 #include <G4Event.hh>
+#include <G4PrimaryVertex.hh>
+#include <G4PrimaryParticle.hh>
+#include <G4ParticleDefinition.hh>
+#include <G4SystemOfUnits.hh>
 
 #include "G4CXOpticks.hh"
 #include "SEvt.hh"
@@ -47,6 +51,25 @@ void OpticsEventAction::BeginOfEventAction(const G4Event* event)
 
     // Sync the step action's baseline to match
     if (fStepAction) fStepAction->ResetGenstepBaseline(fGenstepCountAtEventStart);
+
+    // ── (1) Report primary particle for this event ───────────────────────
+    int eid = event->GetEventID();
+    int nVtx = event->GetNumberOfPrimaryVertex();
+    for (int iv = 0; iv < nVtx; ++iv) {
+        G4PrimaryVertex* v = event->GetPrimaryVertex(iv);
+        if (!v) continue;
+        for (G4PrimaryParticle* p = v->GetPrimary(); p != nullptr; p = p->GetNext()) {
+            const G4ParticleDefinition* pdef = p->GetParticleDefinition();
+            G4String pname = pdef ? pdef->GetParticleName() : G4String("(unknown)");
+            double  ke_MeV = p->GetKineticEnergy() / MeV;
+            std::cout << "[OpticsPlugin][DBG] Event " << eid
+                      << " primary: " << pname
+                      << "  KE=" << ke_MeV << " MeV"
+                      << "  dir=(" << p->GetMomentumDirection().x() << ","
+                                   << p->GetMomentumDirection().y() << ","
+                                   << p->GetMomentumDirection().z() << ")\n";
+        }
+    }
 }
 
 void OpticsEventAction::RecordGenstep(int64_t genstepIdx, int trackId)
