@@ -14,7 +14,11 @@ PREFIX=/path/to/optic-gpu                                    # repo root
 SPACK_ENV=${PREFIX}/.envrc                                   # spack activation
 EICOPT_INST=${PREFIX}/eic-opticks/install
 EDEPSIM_INST=${PREFIX}/edep-sim/install
-PLUGIN_BUILD=${PREFIX}/edep-opticks-plugin/build
+PLUGIN_BUILD=${PREFIX}/edep-simphony-plugin/build
+
+# Consumed by CMakeLists.txt at configure time (export so cmake sees them):
+export OPTIC_GPU_ROOT=${PREFIX}                              # repo root
+export HACK_LOCAL=/path/to/hack/local                        # plog + OptiX headers
 
 # OpenSSL is needed by ROOT on Debian 12 spack builds. Point this at your
 # spack view's openssl libdir, or remove from LD_LIBRARY_PATH below if your
@@ -41,7 +45,7 @@ ${OPENSSL_DIR}:\
 ${LD_LIBRARY_PATH}
 
 # ── Plugin shared library path (referenced in macro via $(PLUGIN_LIB)) ─────
-export PLUGIN_LIB=${PLUGIN_BUILD}/libedep-opticks-plugin.so
+export PLUGIN_LIB=${PLUGIN_BUILD}/libedep-simphony-plugin.so
 
 # Physics process swap: replaces G4Cerenkov/G4Scintillation with instrumented
 # versions that call U4::CollectGenstep_*() → SEvt::AddGenstep() at each step.

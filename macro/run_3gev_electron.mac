@@ -3,13 +3,15 @@
 # Run with:
 #   source setup_env.sh
 #   edep-sim -p QGSP_BERT \
-#            -g /nfs/data/1/xning/optic-gpu/light_trap_ggd/lighttrap.gdml \
-#            -o /nfs/data/1/xning/tmp/gpu_optical_test.root \
+#            -g ${OPTIC_GPU_ROOT}/light_trap_ggd/lighttrap.gdml \
+#            -o gpu_optical_test.root \
 #            -e 10 \
 #            run_3gev_electron.mac
 #
+# Run this from the macro/ directory so the relative /control/execute below resolves.
+#
 # The physics list is set via -p on the command line (not a macro command).
-# EXTRAPHYSICS env var (set by setup_env.sh) loads OpticsPhysicsSwap before /run/initialize.
+# EXTRAPHYSICS env var (set by setup_env.sh) loads SimphonyPhysicsSwap before /run/initialize.
 
 # ── Verbosity ──────────────────────────────────────────────────────────────
 /run/verbose 1
@@ -19,7 +21,7 @@
 /run/initialize
 
 # ── Load GPU optical plugin actions (must come after /run/initialize) ──────
-/control/execute /nfs/data/1/xning/optic-gpu/edep-opticks-plugin/macro/opticks_plugin.mac
+/control/execute simphony_plugin.mac
 
 # ── Particle gun: 3 GeV electron along z-axis ─────────────────────────────
 # World is 100x100x100 cm (±500 mm). SiPMs are at y=251 mm, z=258 mm.

@@ -1,8 +1,8 @@
-# edep-sim + eic-opticks GPU Optical Integration
+# edep-Simphony plugin — edep-sim + eic-opticks GPU Optical Integration
 
 ## Project Summary
 
-This project integrates **edep-sim** (Geant4 CPU simulation) with **eic-opticks** (GPU optical photon transport via NVIDIA OptiX) into a single pipeline. The result is a simulation where:
+The **edep-Simphony plugin** (`libedep-simphony-plugin.so`) integrates **edep-sim** (Geant4 CPU simulation) with **eic-opticks** (GPU optical photon transport via NVIDIA OptiX) into a single pipeline. The result is a simulation where:
 
 - edep-sim handles charged-particle physics (ionisation, EM showers) on CPU
 - When Cerenkov/Scintillation photons would be generated, they are collected as "gensteps" and handed to eic-opticks
@@ -35,7 +35,7 @@ edep-sim process (one event)
   │     → instrumented process records genstep in SEvt buffer (GPU-side)
   │     → optical photon secondaries KILLED on CPU (GPU handles them)
   │
-  ├─ CPU: OpticsStepAction records genstepIdx → G4 TrackID map
+  ├─ CPU: SimphonyStepAction records genstepIdx → G4 TrackID map
   │
   ├─ CPU: EndOfEventAction calls G4CXOpticks::simulate()  [blocking]
   │         GPU: OptiX ray-traces all photons in this event
@@ -74,23 +74,23 @@ edep-sim process (one event)
 
 ### 3. Plugin library
 - Source: this repository
-- Build output: `build/libedep-opticks-plugin.so`
+- Build output: `build/libedep-simphony-plugin.so`
 
 | File | Role |
 |---|---|
-| `src/OpticsRunAction.cc` | Forces `KillOpticalPhotons=true`; registers `LArTPCSensorIdentifier`; calls `SEvt::CreateOrReuse()` then `G4CXOpticks::SetGeometry()`; creates GPUPhotonHits TTree |
-| `src/OpticsEventAction.cc` | Calls `simulate()`; collects hits into TTree; recovers TrackId |
-| `src/OpticsStepAction.cc` | Records genstep index → G4 TrackID provenance map |
-| `src/OpticsPhysicsSwap.cc` | Replaces G4Cerenkov/G4Scintillation with instrumented versions |
+| `src/SimphonyRunAction.cc` | Forces `KillOpticalPhotons=true`; registers `LArTPCSensorIdentifier`; calls `SEvt::CreateOrReuse()` then `G4CXOpticks::SetGeometry()`; creates GPUPhotonHits TTree |
+| `src/SimphonyEventAction.cc` | Calls `simulate()`; collects hits into TTree; recovers TrackId |
+| `src/SimphonyStepAction.cc` | Records genstep index → G4 TrackID provenance map |
+| `src/SimphonyPhysicsSwap.cc` | Replaces G4Cerenkov/G4Scintillation with instrumented versions |
 | `src/LArTPCSensorIdentifier.h` | Custom sensor identifier: finds volumes with a G4 SensitiveDetector (works for any geometry, not just PMT-named volumes) |
 | `src/plugin_entry.cc` | `extern "C"` factory entry points |
 | `macro/run_3gev_electron.mac` | Run macro (particle gun, geometry update, plugin load) |
-| `macro/opticks_plugin.mac` | Loads plugin actions via `/edep/actions/load*` |
+| `macro/simphony_plugin.mac` | Loads plugin actions via `/edep/actions/load*` |
 | `setup_env.example.sh` | Template for `setup_env.sh` — copy and edit the paths for your machine |
 | `setup_env.sh` (gitignored) | User-local copy of the template; sets all required environment variables |
 
 ### 4. Geometry
-- **lighttrap.gdml**: `/nfs/data/1/xning/optic-gpu/light_trap_ggd/lighttrap.gdml`
+- **lighttrap.gdml**: `${OPTIC_GPU_ROOT}/light_trap_ggd/lighttrap.gdml`
   - 100×100×100 cm LAr world
   - 30 SiPMs (0.6×0.6 cm each) with EFFICIENCY=1.0, REFLECTIVITY=0.0
   - Vikuiti reflective foil on back plane and edges
@@ -153,7 +153,7 @@ ${PLUGIN_BUILD}:\
 ${LD_LIBRARY_PATH}
 
 # Plugin shared library path
-export PLUGIN_LIB=${PLUGIN_BUILD}/libedep-opticks-plugin.so
+export PLUGIN_LIB=${PLUGIN_BUILD}/libedep-simphony-plugin.so
 
 # Instrumented Cerenkov/Scintillation physics (loaded before /run/initialize)
 export EXTRAPHYSICS="EXTERN:${PLUGIN_LIB}:CreatePhysicsConstructor"

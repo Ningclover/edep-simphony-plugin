@@ -1,6 +1,6 @@
-#include "OpticsEventAction.hh"
-#include "OpticsRunAction.hh"
-#include "OpticsStepAction.hh"
+#include "SimphonyEventAction.hh"
+#include "SimphonyRunAction.hh"
+#include "SimphonyStepAction.hh"
 
 #include <G4Event.hh>
 #include <G4PrimaryVertex.hh>
@@ -19,7 +19,7 @@
 
 #include <iostream>
 
-// Branch buffer accessors defined in OpticsRunAction.cc
+// Branch buffer accessors defined in SimphonyRunAction.cc
 int&            GetGEventId();
 int&            GetGTrackId();
 int&            GetGProcess();
@@ -38,11 +38,11 @@ static constexpr double kHC_MeV_nm = 1.23984e-3;
 static constexpr int kGenCerenkov      = 1;  // OpticksGenstep_G4Cerenkov_1042
 static constexpr int kGenScintillation = 2;  // OpticksGenstep_DsG4Scintillation_r4695
 
-OpticsEventAction::OpticsEventAction(OpticsRunAction* runAction)
+SimphonyEventAction::SimphonyEventAction(SimphonyRunAction* runAction)
     : fRunAction(runAction)
 {}
 
-void OpticsEventAction::BeginOfEventAction(const G4Event* event)
+void SimphonyEventAction::BeginOfEventAction(const G4Event* event)
 {
     fGenstepTrackIds.clear();
 
@@ -62,7 +62,7 @@ void OpticsEventAction::BeginOfEventAction(const G4Event* event)
             const G4ParticleDefinition* pdef = p->GetParticleDefinition();
             G4String pname = pdef ? pdef->GetParticleName() : G4String("(unknown)");
             double  ke_MeV = p->GetKineticEnergy() / MeV;
-            std::cout << "[OpticsPlugin][DBG] Event " << eid
+            std::cout << "[SimphonyPlugin][DBG] Event " << eid
                       << " primary: " << pname
                       << "  KE=" << ke_MeV << " MeV"
                       << "  dir=(" << p->GetMomentumDirection().x() << ","
@@ -72,12 +72,12 @@ void OpticsEventAction::BeginOfEventAction(const G4Event* event)
     }
 }
 
-void OpticsEventAction::RecordGenstep(int64_t genstepIdx, int trackId)
+void SimphonyEventAction::RecordGenstep(int64_t genstepIdx, int trackId)
 {
     fGenstepTrackIds.emplace_back(genstepIdx, trackId);
 }
 
-int OpticsEventAction::RecoverTrackId(int photonIndex) const
+int SimphonyEventAction::RecoverTrackId(int photonIndex) const
 {
     // Walk the genstep summary vector to find which genstep produced photon[photonIndex]
     SEvt* sev = SEvt::Get_EGPU();
@@ -86,7 +86,7 @@ int OpticsEventAction::RecoverTrackId(int photonIndex) const
     const std::vector<sgs>& gs_vec = sev->gs;
     for (const sgs& gs : gs_vec) {
         if (photonIndex >= gs.offset && photonIndex < gs.offset + gs.photons) {
-            // Prefer the provenance map recorded by OpticsStepAction
+            // Prefer the provenance map recorded by SimphonyStepAction
             for (const auto& [idx, tid] : fGenstepTrackIds) {
                 if (idx == gs.index) return tid;
             }
@@ -99,16 +99,16 @@ int OpticsEventAction::RecoverTrackId(int photonIndex) const
     return -1;
 }
 
-void OpticsEventAction::EndOfEventAction(const G4Event* event)
+void SimphonyEventAction::EndOfEventAction(const G4Event* event)
 {
     G4CXOpticks* gx = G4CXOpticks::Get();
-    if (!gx) { std::cout << "[OpticsPlugin] EndOfEvent: G4CXOpticks::Get() = null\n"; return; }
+    if (!gx) { std::cout << "[SimphonyPlugin] EndOfEvent: G4CXOpticks::Get() = null\n"; return; }
 
     SEvt* sev = SEvt::Get_EGPU();
-    if (!sev) { std::cout << "[OpticsPlugin] EndOfEvent: SEvt::Get_EGPU() = null\n"; return; }
+    if (!sev) { std::cout << "[SimphonyPlugin] EndOfEvent: SEvt::Get_EGPU() = null\n"; return; }
 
     int64_t ngenstep = sev->getNumGenstepCollected();
-    std::cout << "[OpticsPlugin] EndOfEvent: ngenstep=" << ngenstep << "\n";
+    std::cout << "[SimphonyPlugin] EndOfEvent: ngenstep=" << ngenstep << "\n";
     if (ngenstep == 0) {
         gx->reset(event->GetEventID());
         return;
@@ -116,12 +116,12 @@ void OpticsEventAction::EndOfEventAction(const G4Event* event)
 
     // ── 1. Run GPU optical photon simulation ──────────────────────────────
     int64_t nphoton = sev->getNumPhotonCollected();
-    std::cout << "[OpticsPlugin] EndOfEvent: nphoton=" << nphoton << "\n";
+    std::cout << "[SimphonyPlugin] EndOfEvent: nphoton=" << nphoton << "\n";
     gx->simulate(event->GetEventID(), /*reset=*/false);
 
     // ── 2. Collect hits ───────────────────────────────────────────────────
     int64_t nhit = SEvt::GetNumHit_EGPU();
-    std::cout << "[OpticsPlugin] EndOfEvent: nhit=" << nhit << "\n";
+    std::cout << "[SimphonyPlugin] EndOfEvent: nhit=" << nhit << "\n";
     TTree* tree = fRunAction->GetGPUTree();
 
     if (nhit > 0 && tree) {

@@ -1,13 +1,24 @@
 cmake_minimum_required(VERSION 3.18)
-project(edep-opticks-plugin LANGUAGES CXX)
+project(edep-simphony-plugin LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-set(SPACK_VIEW   "/nfs/data/1/xning/optic-gpu/env/.spack-env/view")
-set(EDEPSIM_INST "/nfs/data/1/xning/optic-gpu/edep-sim/install")
-set(EICOPT_INST  "/nfs/data/1/xning/optic-gpu/eic-opticks/install")
-set(HACK_LOCAL   "/nfs/data/1/xning/edep_optic/hack/local")   # plog, OptiX headers
+# These are machine-specific. Override at configure time, e.g.
+#   cmake -B build -DOPTIC_GPU_ROOT=/path/to/optic-gpu -DHACK_LOCAL=/path/to/hack/local
+# or export the matching environment variables before running cmake.
+set(OPTIC_GPU_ROOT "$ENV{OPTIC_GPU_ROOT}" CACHE PATH "Root of the optic-gpu checkout (contains env/, edep-sim/, eic-opticks/)")
+if(NOT OPTIC_GPU_ROOT)
+    message(FATAL_ERROR "OPTIC_GPU_ROOT is not set. Pass -DOPTIC_GPU_ROOT=... or export OPTIC_GPU_ROOT (see setup_env.example.sh).")
+endif()
+
+set(SPACK_VIEW   "${OPTIC_GPU_ROOT}/env/.spack-env/view"  CACHE PATH "spack view")
+set(EDEPSIM_INST "${OPTIC_GPU_ROOT}/edep-sim/install"     CACHE PATH "edep-sim install prefix")
+set(EICOPT_INST  "${OPTIC_GPU_ROOT}/eic-opticks/install"  CACHE PATH "eic-opticks install prefix")
+set(HACK_LOCAL   "$ENV{HACK_LOCAL}" CACHE PATH "local prefix with plog + OptiX headers")
+if(NOT HACK_LOCAL)
+    message(FATAL_ERROR "HACK_LOCAL is not set. Pass -DHACK_LOCAL=... or export HACK_LOCAL (plog + OptiX headers).")
+endif()
 
 list(APPEND CMAKE_PREFIX_PATH "${SPACK_VIEW}" "${EDEPSIM_INST}")
 
@@ -19,16 +30,17 @@ find_package(EDepSim REQUIRED)
 # ── Plugin library ────────────────────────────────────────────────────────────
 add_compile_definitions(GLM_ENABLE_EXPERIMENTAL OPTICKS_U4 STANDALONE)
 
-add_library(edep-opticks-plugin SHARED
-    src/OpticsRunAction.cc
-    src/OpticsEventAction.cc
-    src/OpticsStepAction.cc
-    src/OpticsPhysicsSwap.cc
+add_library(edep-simphony-plugin SHARED
+    src/SimphonyRunAction.cc
+    src/SimphonyEventAction.cc
+    src/SimphonyStepAction.cc
+    src/SimphonyPhysicsSwap.cc
+    src/SimphonyScintProcess.cc
     src/plugin_entry.cc
 )
 
 # eic-opticks include dirs (all headers installed under include/eic-opticks/)
-target_include_directories(edep-opticks-plugin PRIVATE
+target_include_directories(edep-simphony-plugin PRIVATE
     ${EICOPT_INST}/include/eic-opticks/sysrap
     ${EICOPT_INST}/include/eic-opticks/CSG
     ${EICOPT_INST}/include/eic-opticks/qudarap
@@ -43,9 +55,9 @@ target_include_directories(edep-opticks-plugin PRIVATE
 )
 
 # eic-opticks compiled libraries
-target_link_directories(edep-opticks-plugin PRIVATE ${EICOPT_INST}/lib)
+target_link_directories(edep-simphony-plugin PRIVATE ${EICOPT_INST}/lib)
 
-target_link_libraries(edep-opticks-plugin PRIVATE
+target_link_libraries(edep-simphony-plugin PRIVATE
     # Geant4 + ROOT
     ${Geant4_LIBRARIES}
     ROOT::Core ROOT::Tree ROOT::RIO
@@ -63,4 +75,4 @@ target_link_libraries(edep-opticks-plugin PRIVATE
     cuda
 )
 
-install(TARGETS edep-opticks-plugin LIBRARY DESTINATION lib)
+install(TARGETS edep-simphony-plugin LIBRARY DESTINATION lib)

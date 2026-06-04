@@ -7,11 +7,11 @@
 ///
 /// Loaded via EXTRAPHYSICS env var:
 ///   export EXTRAPHYSICS="EXTERN:$(PLUGIN_LIB):CreatePhysicsConstructor"
-class OpticsPhysicsSwap : public G4VPhysicsConstructor
+class SimphonyPhysicsSwap : public G4VPhysicsConstructor
 {
 public:
-    OpticsPhysicsSwap();
-    ~OpticsPhysicsSwap() override = default;
+    SimphonyPhysicsSwap();
+    ~SimphonyPhysicsSwap() override = default;
 
     void ConstructParticle() override {}
     void ConstructProcess() override;

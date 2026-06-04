@@ -2,23 +2,23 @@
 #include <G4UserSteppingAction.hh>
 #include <cstdint>
 
-class OpticsEventAction;
+class SimphonyEventAction;
 
 /// Per-step hook: after each step, checks how many new gensteps the
 /// instrumented Cerenkov/Scintillation processes added to SEvt and records
 /// the corresponding G4 TrackID for provenance.
-class OpticsStepAction : public G4UserSteppingAction
+class SimphonyStepAction : public G4UserSteppingAction
 {
 public:
-    OpticsStepAction(OpticsEventAction* eventAction);
-    ~OpticsStepAction() override = default;
+    SimphonyStepAction(SimphonyEventAction* eventAction);
+    ~SimphonyStepAction() override = default;
 
     void UserSteppingAction(const G4Step* step) override;
 
-    /// Called by OpticsEventAction::BeginOfEventAction to sync the baseline count.
+    /// Called by SimphonyEventAction::BeginOfEventAction to sync the baseline count.
     void ResetGenstepBaseline(int64_t baseline) { fLastGenstepCount = baseline; }
 
 private:
-    OpticsEventAction* fEventAction;
+    SimphonyEventAction* fEventAction;
     int64_t fLastGenstepCount = 0;
 };

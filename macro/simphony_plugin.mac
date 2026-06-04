@@ -1,10 +1,10 @@
-# opticks_plugin.mac
+# simphony_plugin.mac
 #
 # Include this file AFTER /run/initialize in your main simulation macro.
 # The physics process swap (EXTRAPHYSICS) is handled via env var before startup.
 #
 # Required environment (set via setup_env.sh before running edep-sim):
-#   PLUGIN_LIB             = path to libedep-opticks-plugin.so
+#   PLUGIN_LIB             = path to libedep-simphony-plugin.so
 #   EXTRAPHYSICS           = "EXTERN:$(PLUGIN_LIB):CreatePhysicsConstructor"
 #   OPTICKS_INTEGRATION_MODE = 1
 #

@@ -11,10 +11,10 @@
  * to it so they can access the GPU hit TTree.
  */
 
-#include "OpticsRunAction.hh"
-#include "OpticsEventAction.hh"
-#include "OpticsStepAction.hh"
-#include "OpticsPhysicsSwap.hh"
+#include "SimphonyRunAction.hh"
+#include "SimphonyEventAction.hh"
+#include "SimphonyStepAction.hh"
+#include "SimphonyPhysicsSwap.hh"
 
 #include <G4UserRunAction.hh>
 #include <G4UserEventAction.hh>
@@ -22,28 +22,28 @@
 #include <G4VPhysicsConstructor.hh>
 
 // Singleton pointers so event/step actions can find the run action.
-static OpticsRunAction*   gRunAction   = nullptr;
-static OpticsEventAction* gEventAction = nullptr;
+static SimphonyRunAction*   gRunAction   = nullptr;
+static SimphonyEventAction* gEventAction = nullptr;
 
 extern "C" {
 
 G4UserRunAction* CreateUserRunAction(const char* option)
 {
-    gRunAction = new OpticsRunAction(option);
+    gRunAction = new SimphonyRunAction(option);
     return gRunAction;
 }
 
 G4UserEventAction* CreateUserEventAction(const char* option)
 {
     // Run action must be created first (via the macro ordering).
-    gEventAction = new OpticsEventAction(gRunAction);
+    gEventAction = new SimphonyEventAction(gRunAction);
     return gEventAction;
 }
 
 G4UserSteppingAction* CreateUserStepAction(const char* option)
 {
     // Event action must be created first.
-    auto* sa = new OpticsStepAction(gEventAction);
+    auto* sa = new SimphonyStepAction(gEventAction);
     // Let the event action reset the step action's baseline each event.
     if (gEventAction) gEventAction->SetStepAction(sa);
     return sa;
@@ -51,7 +51,7 @@ G4UserSteppingAction* CreateUserStepAction(const char* option)
 
 G4VPhysicsConstructor* CreatePhysicsConstructor(const char* /*option*/)
 {
-    return new OpticsPhysicsSwap();
+    return new SimphonyPhysicsSwap();
 }
 
 } // extern "C"

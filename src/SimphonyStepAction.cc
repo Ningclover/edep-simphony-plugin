@@ -1,6 +1,6 @@
-#include "OpticsStepAction.hh"
-#include "OpticsEventAction.hh"
-#include "OpticsRunAction.hh"
+#include "SimphonyStepAction.hh"
+#include "SimphonyEventAction.hh"
+#include "SimphonyRunAction.hh"
 
 #include <G4Step.hh>
 #include <G4Track.hh>
@@ -25,11 +25,11 @@ static constexpr double kNexOverNq_LAr = 0.21 / 1.21;
 static constexpr int64_t kSampleStride       = 5;
 static constexpr int64_t kAlwaysPrintFirstN  = 3;
 
-OpticsStepAction::OpticsStepAction(OpticsEventAction* eventAction)
+SimphonyStepAction::SimphonyStepAction(SimphonyEventAction* eventAction)
     : fEventAction(eventAction)
 {}
 
-void OpticsStepAction::UserSteppingAction(const G4Step* step)
+void SimphonyStepAction::UserSteppingAction(const G4Step* step)
 {
     const G4Track* trk = step->GetTrack();
     const G4ParticleDefinition* pdef = trk ? trk->GetParticleDefinition() : nullptr;
@@ -47,7 +47,7 @@ void OpticsStepAction::UserSteppingAction(const G4Step* step)
 
     // ── (2) Random-ish sampled print: dE, dE/dx, recombination, N_photons ─
     if (isCharged && inLAr) {
-        OpticsRunAction::sStepCountInLAr += 1;
+        SimphonyRunAction::sStepCountInLAr += 1;
 
         double dE      = step->GetTotalEnergyDeposit();          // MeV
         double dEvis   = step->GetNonIonizingEnergyDeposit();    // MeV (DokeBirks visE)
@@ -56,7 +56,7 @@ void OpticsStepAction::UserSteppingAction(const G4Step* step)
         double Nph     = (dEvis > 0.0) ? (dEvis / kW_LAr_MeV) : 0.0;
 
         // Accumulate run total (request item 4)
-        OpticsRunAction::sTotalEdepSimPhotons += Nph;
+        SimphonyRunAction::sTotalEdepSimPhotons += Nph;
 
         // Recombination factor r recovered from the visE/dE ratio:
         //   visE/dE = Nph/Nq = Nex/Nq + (Nion/Nq) * r
@@ -68,11 +68,11 @@ void OpticsStepAction::UserSteppingAction(const G4Step* step)
             r = (ratio - kNexOverNq_LAr) / (1.0 - kNexOverNq_LAr);
         }
 
-        bool doPrint = (OpticsRunAction::sStepCountInLAr <= kAlwaysPrintFirstN)
-                       || (OpticsRunAction::sStepCountInLAr % kSampleStride == 0);
+        bool doPrint = (SimphonyRunAction::sStepCountInLAr <= kAlwaysPrintFirstN)
+                       || (SimphonyRunAction::sStepCountInLAr % kSampleStride == 0);
         if (doPrint) {
             std::cout << std::fixed << std::setprecision(4)
-                      << "[OpticsPlugin][DBG] step#" << OpticsRunAction::sStepCountInLAr
+                      << "[SimphonyPlugin][DBG] step#" << SimphonyRunAction::sStepCountInLAr
                       << " trk=" << trk->GetTrackID()
                       << " " << pdef->GetParticleName()
                       << "  dE="    << dE   * 1e3 << " keV"
@@ -111,10 +111,10 @@ void OpticsStepAction::UserSteppingAction(const G4Step* step)
             stepPhotons += gs_vec[idx].photons;
         }
     }
-    OpticsRunAction::sTotalOpticksGenstepPhotons += stepPhotons;
-    OpticsRunAction::sNewGenstepsThisRun        += stepNewGS;
+    SimphonyRunAction::sTotalSimphonyGenstepPhotons += stepPhotons;
+    SimphonyRunAction::sNewGenstepsThisRun        += stepNewGS;
 
-    std::cout << "[OpticsPlugin][DBG] step trk=" << trackId
+    std::cout << "[SimphonyPlugin][DBG] step trk=" << trackId
               << " new_gensteps=" << stepNewGS
               << " photons_to_optix=" << stepPhotons << "\n";
 

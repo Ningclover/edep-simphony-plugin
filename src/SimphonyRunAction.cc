@@ -1,5 +1,5 @@
-#include "OpticsRunAction.hh"
-#include "OpticsEventAction.hh"
+#include "SimphonyRunAction.hh"
+#include "SimphonyEventAction.hh"
 
 #include <G4Run.hh>
 #include <G4RunManager.hh>
@@ -28,7 +28,7 @@
 
 #include <iostream>
 
-// Per-event branch buffers (filled by OpticsEventAction, stored here as statics
+// Per-event branch buffers (filled by SimphonyEventAction, stored here as statics
 // so TTree branches keep valid pointers across events).
 static int              gEventId   = -1;
 static int              gTrackId   = -1;
@@ -37,20 +37,20 @@ static float            gWavelength = 0;  // nm
 static TLorentzVector   gHitPos;          // mm, ns
 static TLorentzVector   gStartPos;        // mm, ns (genstep step position)
 
-// Static debug accumulators (declared in OpticsRunAction.hh).
-double   OpticsRunAction::sTotalEdepSimPhotons        = 0.0;
-int64_t  OpticsRunAction::sTotalOpticksGenstepPhotons = 0;
-int64_t  OpticsRunAction::sStepCountInLAr             = 0;
-int64_t  OpticsRunAction::sNewGenstepsThisRun         = 0;
+// Static debug accumulators (declared in SimphonyRunAction.hh).
+double   SimphonyRunAction::sTotalEdepSimPhotons        = 0.0;
+int64_t  SimphonyRunAction::sTotalSimphonyGenstepPhotons = 0;
+int64_t  SimphonyRunAction::sStepCountInLAr             = 0;
+int64_t  SimphonyRunAction::sNewGenstepsThisRun         = 0;
 
-OpticsRunAction::OpticsRunAction(const char* /*option*/)
+SimphonyRunAction::SimphonyRunAction(const char* /*option*/)
 {}
 
-void OpticsRunAction::BeginOfRunAction(const G4Run* /*run*/)
+void SimphonyRunAction::BeginOfRunAction(const G4Run* /*run*/)
 {
     // Reset run-level debug accumulators
     sTotalEdepSimPhotons        = 0.0;
-    sTotalOpticksGenstepPhotons = 0;
+    sTotalSimphonyGenstepPhotons = 0;
     sStepCountInLAr             = 0;
     sNewGenstepsThisRun         = 0;
 
@@ -62,11 +62,11 @@ void OpticsRunAction::BeginOfRunAction(const G4Run* /*run*/)
         // running an event, so we fall back to a generic note.
         G4VPrimaryGenerator* gen = nullptr;
         // No portable accessor across edep-sim / Geant4 versions; print what we can
-        std::cout << "[OpticsPlugin][DBG] BeginOfRun: primary-generator action installed; "
+        std::cout << "[SimphonyPlugin][DBG] BeginOfRun: primary-generator action installed; "
                   << "actual particle/energy printed on first event.\n";
         (void)gen;
     } else {
-        std::cout << "[OpticsPlugin][DBG] BeginOfRun: no primary-generator action found\n";
+        std::cout << "[SimphonyPlugin][DBG] BeginOfRun: no primary-generator action found\n";
     }
 
     // ── 1. Translate Geant4 geometry → CSGFoundry and init OptiX ──────────
@@ -74,7 +74,7 @@ void OpticsRunAction::BeginOfRunAction(const G4Run* /*run*/)
                            ->GetNavigatorForTracking();
     const G4VPhysicalVolume* world = nav->GetWorldVolume();
     if (!world) {
-        std::cerr << "[OpticsPlugin] ERROR: world volume not available in BeginOfRunAction\n";
+        std::cerr << "[SimphonyPlugin] ERROR: world volume not available in BeginOfRunAction\n";
         return;
     }
 
@@ -93,7 +93,7 @@ void OpticsRunAction::BeginOfRunAction(const G4Run* /*run*/)
                        G4RunManager::GetRunManager()->GetUserStackingAction()));
     if (sa) {
         sa->SetKillOpticalPhotons(true);
-        std::cout << "[OpticsPlugin] Forced KillOpticalPhotons=true (GPU handles transport)\n";
+        std::cout << "[SimphonyPlugin] Forced KillOpticalPhotons=true (GPU handles transport)\n";
     }
 
     // Register custom sensor identifier before geometry translation so that
@@ -102,13 +102,13 @@ void OpticsRunAction::BeginOfRunAction(const G4Run* /*run*/)
     G4CXOpticks::SetSensorIdentifier(new LArTPCSensorIdentifier());
 
     G4CXOpticks::SetGeometry(world);
-    std::cout << "[OpticsPlugin] G4CXOpticks geometry set, OptiX ready\n";
+    std::cout << "[SimphonyPlugin] G4CXOpticks geometry set, OptiX ready\n";
 
     // ── 2. Create parallel GPU hit TTree in the edep-sim ROOT file ─────────
     auto* pm = dynamic_cast<EDepSim::RootPersistencyManager*>(
                    G4VPersistencyManager::GetPersistencyManager());
     if (!pm || !pm->IsOpen()) {
-        std::cerr << "[OpticsPlugin] WARNING: ROOT file not open yet; "
+        std::cerr << "[SimphonyPlugin] WARNING: ROOT file not open yet; "
                      "GPU hit tree will not be created.\n"
                      "  Make sure /edep/db/open is called before /run/beamOn.\n";
         return;
@@ -125,30 +125,30 @@ void OpticsRunAction::BeginOfRunAction(const G4Run* /*run*/)
     fGPUTree->Branch("HitPos",    "TLorentzVector", &gHitPos);    // mm, ns
     fGPUTree->Branch("StartPos",  "TLorentzVector", &gStartPos);  // mm, ns
 
-    std::cout << "[OpticsPlugin] GPUPhotonHits TTree created in ROOT file\n";
+    std::cout << "[SimphonyPlugin] GPUPhotonHits TTree created in ROOT file\n";
 }
 
-void OpticsRunAction::EndOfRunAction(const G4Run* /*run*/)
+void SimphonyRunAction::EndOfRunAction(const G4Run* /*run*/)
 {
     // ── Run-level debug summary (request items 4 & 5) ─────────────────────
-    std::cout << "\n[OpticsPlugin][DBG] ===== Run summary =====\n"
-              << "[OpticsPlugin][DBG]   Charged steps in LAr (sampled population)  : "
+    std::cout << "\n[SimphonyPlugin][DBG] ===== Run summary =====\n"
+              << "[SimphonyPlugin][DBG]   Charged steps in LAr (sampled population)  : "
               << sStepCountInLAr << "\n"
-              << "[OpticsPlugin][DBG]   New gensteps emitted to eic-opticks        : "
+              << "[SimphonyPlugin][DBG]   New gensteps emitted to eic-opticks        : "
               << sNewGenstepsThisRun << "\n"
-              << "[OpticsPlugin][DBG] (4) Total photons generated by edep-sim      : "
+              << "[SimphonyPlugin][DBG] (4) Total photons generated by edep-sim      : "
               << sTotalEdepSimPhotons
               << "  [DokeBirks visE / 19.5 eV summed over charged steps]\n"
-              << "[OpticsPlugin][DBG] (5) Total photons accepted by eic-opticks    : "
-              << sTotalOpticksGenstepPhotons
+              << "[SimphonyPlugin][DBG] (5) Total photons accepted by eic-opticks    : "
+              << sTotalSimphonyGenstepPhotons
               << "  [sum of sgs.photons across all collected gensteps]\n"
-              << "[OpticsPlugin][DBG] =========================\n";
+              << "[SimphonyPlugin][DBG] =========================\n";
 
     G4CXOpticks::Finalize();
-    std::cout << "[OpticsPlugin] G4CXOpticks finalized\n";
+    std::cout << "[SimphonyPlugin] G4CXOpticks finalized\n";
 }
 
-// ── Accessors used by OpticsEventAction ────────────────────────────────────
+// ── Accessors used by SimphonyEventAction ────────────────────────────────────
 int&            GetGEventId()    { return gEventId;   }
 int&            GetGTrackId()    { return gTrackId;   }
 int&            GetGProcess()    { return gProcess;   }
