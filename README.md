@@ -9,20 +9,6 @@ The **edep-Simphony plugin** (`libedep-simphony-plugin.so`) integrates **edep-si
 - eic-opticks ray-traces all photons in the event on GPU using OptiX
 - Both the CPU physics results and the GPU photon hits are written into one ROOT file
 
-**Demonstrated result** (1000 × 1 MeV electrons in lighttrap geometry, `EDEPSIM_DOKEBIRKS_VISE=1`):
-
-| Quantity | Value |
-|---|---|
-| Charged steps in LAr | 22,836 |
-| Photons predicted by edep-sim DokeBirks `Σ visE / 19.5 eV` | 1.736 × 10⁷ |
-| Photons accepted by eic-opticks (GPU genstep sum) | 1.776 × 10⁷ |
-| SiPM hits recorded in `GPUPhotonHits` | 6,907 |
-| Photon process mix | 6,676 scintillation / 231 Cerenkov |
-| Wavelength range | 106–530 nm (median 479 nm; VUV scintillation + visible Cerenkov + WLS-shifted) |
-| Primary trackability | 95 unique TrackIds; TrackId=1 traces back to primary e⁻ |
-
-The pre-fix baseline (legacy `SCINTILLATIONYIELD × inline-Birks` path, 2-event short run) produced ~513 GPU photons and 0 SiPM hits — drift-field-dependent recombination was effectively absent. See the bug table below for the integration gap that was closed.
-
 ---
 
 ## Architecture
@@ -96,22 +82,6 @@ edep-sim process (one event)
   - Vikuiti reflective foil on back plane and edges
   - pTP wavelength-shifter and blue WLS acrylic plates
   - LAr RINDEX properly defined (1.23–1.45 across optical/VUV range)
-
----
-
-## Non-Obvious Bugs Fixed
-
-| Bug | Symptom | Fix |
-|---|---|---|
-| OptiX 9.0.0 ABI mismatch | `OPTIX_ERROR_UNSUPPORTED_ABI_VERSION` at startup | Rebuilt CSGOptiX with OptiX 8.1.0 headers from `optix810-sdk/` |
-| SEvt not initialized | `SEvt::Get_EGPU() = null` | Call `SEvt::CreateOrReuse()` BEFORE `G4CXOpticks::SetGeometry()` |
-| External actions never called | GPU plugin skipped on events with no ionisation hits | Moved external action loop before `if (!HCofEvent) return` in `EDepSimUserEventAction.cc` |
-| Old libs overriding new ones | Symbol lookup errors, wrong edepsim loaded | Removed `hack/local/lib` from `LD_LIBRARY_PATH`; prepended correct lib paths |
-| Sensors not recognized | `sensor_count=0`, 0 hits | Default sensor ID requires "PMT" in name; wrote `LArTPCSensorIdentifier` using SD check |
-| Photons tracked on CPU | Run freezes after 2 events | `SurfaceDetector` aux tag sets `KillOpticalPhotons=false`; plugin forces it back to `true` in `BeginOfRunAction` |
-| LAr RINDEX=1.0 on GPU | `sampledRI=1.0`, cosTheta>1, unphysical | Switched to lighttrap.gdml which has proper LAr material properties |
-| GPU photon count field-blind | `(5) Total photons accepted by eic-opticks ≈ 513` vs `(4) DokeBirks predicted ≈ 38k`; SCINTILLATIONYIELD=0 in GDML, inline Birks ignores drift field | Set `EDEPSIM_DOKEBIRKS_VISE=1` — `Local_DsG4Scintillation::PostStepDoIt` now reads visE from `G4EmParameters::Instance()->GetEmSaturation()->VisibleEnergyDepositionAtAStep(&aStep)` (calls edep-sim's DokeBirks directly, so process-ordering doesn't matter) and divides by W=19.5 eV |
-| GPU buffer alloc OOM | `terminate called after throwing 'QUDA_Exception' ... QEvt::device_alloc_photon ... out of memory` (12 GB alloc fails on a partly-used 24 GB card) | Set `OPTICKS_MAX_SLOT=M1` (1e6 slots ≈ 64 MB; plenty for debug runs with <1e6 photons/event) |
 
 ---
 
