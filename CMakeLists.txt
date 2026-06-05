@@ -39,15 +39,15 @@ add_library(edep-simphony-plugin SHARED
     src/plugin_entry.cc
 )
 
-# eic-opticks include dirs (all headers installed under include/eic-opticks/)
+# eic-opticks/simphony include dirs (all headers installed under include/simphony/)
 target_include_directories(edep-simphony-plugin PRIVATE
-    ${EICOPT_INST}/include/eic-opticks/sysrap
-    ${EICOPT_INST}/include/eic-opticks/CSG
-    ${EICOPT_INST}/include/eic-opticks/qudarap
-    ${EICOPT_INST}/include/eic-opticks/CSGOptiX
-    ${EICOPT_INST}/include/eic-opticks/gdxml
-    ${EICOPT_INST}/include/eic-opticks/u4
-    ${EICOPT_INST}/include/eic-opticks/g4cx
+    ${EICOPT_INST}/include/simphony/sysrap
+    ${EICOPT_INST}/include/simphony/CSG
+    ${EICOPT_INST}/include/simphony/qudarap
+    ${EICOPT_INST}/include/simphony/CSGOptiX
+    ${EICOPT_INST}/include/simphony/gdxml
+    ${EICOPT_INST}/include/simphony/u4
+    ${EICOPT_INST}/include/simphony/g4cx
     ${HACK_LOCAL}/include        # plog
     ${EDEPSIM_INST}/include      # EDepSim headers
     /usr/local/cuda/include      # CUDA headers (vector_types.h etc.)
