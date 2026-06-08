@@ -12,7 +12,7 @@
 # that provides Geant4, ROOT, etc. Edit to match your machine.
 PREFIX=/path/to/optic-gpu                                    # repo root
 SPACK_ENV=${PREFIX}/.envrc                                   # spack activation
-EICOPT_INST=${PREFIX}/eic-opticks/install
+EICOPT_INST=${PREFIX}/simphony/install
 EDEPSIM_INST=${PREFIX}/edep-sim/install
 PLUGIN_BUILD=${PREFIX}/edep-simphony-plugin/build
 

@@ -7,14 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # These are machine-specific. Override at configure time, e.g.
 #   cmake -B build -DOPTIC_GPU_ROOT=/path/to/optic-gpu -DHACK_LOCAL=/path/to/hack/local
 # or export the matching environment variables before running cmake.
-set(OPTIC_GPU_ROOT "$ENV{OPTIC_GPU_ROOT}" CACHE PATH "Root of the optic-gpu checkout (contains env/, edep-sim/, eic-opticks/)")
+set(OPTIC_GPU_ROOT "$ENV{OPTIC_GPU_ROOT}" CACHE PATH "Root of the optic-gpu checkout (contains env/, edep-sim/, simphony/)")
 if(NOT OPTIC_GPU_ROOT)
     message(FATAL_ERROR "OPTIC_GPU_ROOT is not set. Pass -DOPTIC_GPU_ROOT=... or export OPTIC_GPU_ROOT (see setup_env.example.sh).")
 endif()
 
 set(SPACK_VIEW   "${OPTIC_GPU_ROOT}/env/.spack-env/view"  CACHE PATH "spack view")
 set(EDEPSIM_INST "${OPTIC_GPU_ROOT}/edep-sim/install"     CACHE PATH "edep-sim install prefix")
-set(EICOPT_INST  "${OPTIC_GPU_ROOT}/eic-opticks/install"  CACHE PATH "eic-opticks install prefix")
+set(EICOPT_INST  "${OPTIC_GPU_ROOT}/simphony/install"  CACHE PATH "simphony (formerly eic-opticks) install prefix")
 set(HACK_LOCAL   "$ENV{HACK_LOCAL}" CACHE PATH "local prefix with plog + OptiX headers")
 if(NOT HACK_LOCAL)
     message(FATAL_ERROR "HACK_LOCAL is not set. Pass -DHACK_LOCAL=... or export HACK_LOCAL (plog + OptiX headers).")
