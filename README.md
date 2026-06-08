@@ -1,13 +1,17 @@
-# edep-Simphony plugin — edep-sim + eic-opticks GPU Optical Integration
+# edep-Simphony plugin — edep-sim + Simphony GPU Optical Integration
 
 ## Project Summary
 
-The **edep-Simphony plugin** (`libedep-simphony-plugin.so`) integrates **edep-sim** (Geant4 CPU simulation) with **eic-opticks** (GPU optical photon transport via NVIDIA OptiX) into a single pipeline. The result is a simulation where:
+The **edep-Simphony plugin** (`libedep-simphony-plugin.so`) integrates **edep-sim** (Geant4 CPU simulation) with **Simphony** (GPU optical photon transport via NVIDIA OptiX) into a single pipeline. The result is a simulation where:
 
 - edep-sim handles charged-particle physics (ionisation, EM showers) on CPU
-- When Cerenkov/Scintillation photons would be generated, they are collected as "gensteps" and handed to eic-opticks
-- eic-opticks ray-traces all photons in the event on GPU using OptiX
+- When Cerenkov/Scintillation photons would be generated, they are collected as "gensteps" and handed to Simphony
+- Simphony ray-traces all photons in the event on GPU using OptiX
 - Both the CPU physics results and the GPU photon hits are written into one ROOT file
+
+> **Naming**: Simphony was formerly called *eic-opticks* (upstream is
+> [BNLNPPS/simphony](https://github.com/BNLNPPS/simphony)). The local checkout
+> and install live under `<prefix>/simphony/`.
 
 ---
 
@@ -18,7 +22,7 @@ edep-sim process (one event)
   │
   ├─ CPU: Geant4 tracks electron step by step
   │     Cerenkov/Scintillation fires at each step
-  │     → instrumented process records genstep in SEvt buffer (GPU-side)
+  │     → instrumented process records genstep in SEvt buffer (Simphony, GPU-side)
   │     → optical photon secondaries KILLED on CPU (GPU handles them)
   │
   ├─ CPU: SimphonyStepAction records genstepIdx → G4 TrackID map
@@ -43,13 +47,13 @@ edep-sim process (one event)
 
 ## Key Components
 
-### 1. eic-opticks (rebuilt from source)
-- Source: `<prefix>/eic-opticks/`
-- Install: `<prefix>/eic-opticks/install/`
+### 1. Simphony (rebuilt from source)
+- Source: `<prefix>/simphony/`
+- Install: `<prefix>/simphony/install/` (headers under `include/simphony/`)
 - Built with **OptiX 8.1.0** headers (ABI 93), compatible with driver 555.42.06
   - OptiX 9.0.0 (ABI 105) is NOT compatible with this driver
   - OptiX 8.1.0 headers live at: `<prefix>/optix810-sdk/`
-- PTX kernel: `eic-opticks/install/lib/CSGOptiX7.ptx`
+- PTX kernel: `simphony/install/lib/CSGOptiX7.ptx`
 
 ### 2. edep-sim (one source change)
 - Source: `<prefix>/edep-sim/`
@@ -110,7 +114,7 @@ This loads Geant4 11.2.2, ROOT 6.32.02, CMake 3.30.2, and GCC from the spack vie
 ### Step 2: Set required environment variables
 
 ```bash
-EICOPT_INST=<prefix>/eic-opticks/install
+EICOPT_INST=<prefix>/simphony/install
 EDEPSIM_INST=<prefix>/edep-sim/install
 PLUGIN_BUILD=<path-to-this-repo>/build
 
@@ -128,7 +132,7 @@ export PLUGIN_LIB=${PLUGIN_BUILD}/libedep-simphony-plugin.so
 # Instrumented Cerenkov/Scintillation physics (loaded before /run/initialize)
 export EXTRAPHYSICS="EXTERN:${PLUGIN_LIB}:CreatePhysicsConstructor"
 
-# eic-opticks mode: 1 = GPU-only (no CPU photon tracking)
+# Simphony mode: 1 = GPU-only (no CPU photon tracking)
 export OPTICKS_INTEGRATION_MODE=1
 
 # Drift-field-aware photon yield: route edep-sim DokeBirks visE through
@@ -145,14 +149,15 @@ export OPTICKS_MAX_SLOT=M1
 # PTX kernel path
 export CSGOptiX__ptxpath=${EICOPT_INST}/lib/CSGOptiX7.ptx
 
-# Output folder for eic-opticks numpy arrays (genstep.npy, hit.npy etc.)
-export OPTICKS_OUT_FOLD=/tmp/opticks_output
+# Output folder for Simphony numpy arrays (genstep.npy, hit.npy etc.)
+# Note: /tmp is often full on wcgpu1 — setup_env.sh uses /nfs/data/1/xning/tmp/opticks_output
+export OPTICKS_OUT_FOLD=/nfs/data/1/xning/tmp/opticks_output
 ```
 
 The simplest path is to just `source setup_env.sh`, which sets all of the above (including `EDEPSIM_DOKEBIRKS_VISE=1` and `OPTICKS_MAX_SLOT=M1` by default) and skips the per-variable boilerplate.
 
 > **Warning**: Do NOT add any directory containing old conflicting versions of
-> Geant4, edepsim, or eic-opticks to `LD_LIBRARY_PATH`. These will override the
+> Geant4, edepsim, or Simphony to `LD_LIBRARY_PATH`. These will override the
 > correctly-versioned libraries and cause symbol errors.
 
 ### Step 3: Run
@@ -168,9 +173,19 @@ edep-sim -p QGSP_BERT \
 The particle gun is configured in `run_3gev_electron.mac`. Edit `/gps/energy` and
 `/gps/position` there to change the beam.
 
+> **Note**: despite its name, `run_3gev_electron.mac` currently fires a **1 MeV**
+> electron (`/gps/energy 1 MeV`, `/gps/position 0 0 -400 mm`). Change `/gps/energy`
+> if you want a different beam energy.
+
 ---
 
 ## How to Recompile
+
+> **Easiest path**: the helper script `<prefix>/tests/recompile.sh` rebuilds any
+> or all of the three components in the correct dependency order and verifies the
+> plugin's library links. E.g. `./recompile.sh plugin`, `./recompile.sh simphony
+> --clean`, or `./recompile.sh all -j8`. The manual steps below document what it
+> does, in case you need to debug a build.
 
 ### Recompile the plugin only (most common)
 
@@ -195,10 +210,10 @@ make -j4 install   # must install, not just make
 
 The installed binary is at `edep-sim/install/bin/edep-sim`.
 
-### Recompile eic-opticks
+### Recompile Simphony
 
-The build directory at `eic-opticks/build/` is intact and has a valid cmake cache,
-so there are three cases depending on what you changed.
+When the `simphony/build/` directory has a valid cmake cache (i.e. it was already
+configured at the current path), there are three cases depending on what you changed.
 
 #### Case 1: Changed a `.cc` or `.hh` file (most common)
 
@@ -206,11 +221,11 @@ CMake tracks dependencies automatically — just rebuild:
 
 ```bash
 source <prefix>/.envrc
-cd <prefix>/eic-opticks/build
+cd <prefix>/simphony/build
 make -j8 install
 ```
 
-Install is required. The plugin and edep-sim load from `eic-opticks/install/lib/`.
+Install is required. The plugin and edep-sim load from `simphony/install/lib/`.
 
 #### Case 2: Changed a CUDA kernel (`.cu` file, especially in `CSGOptiX/`)
 
@@ -218,10 +233,10 @@ Same command as Case 1 — `make -j8 install` rebuilds the PTX too. Afterwards v
 
 ```bash
 # PTX timestamp should be recent
-ls -lh <prefix>/eic-opticks/install/lib/CSGOptiX7.ptx
+ls -lh <prefix>/simphony/install/lib/CSGOptiX7.ptx
 
 # ABI must still be 93 (OptiX 8.1.0) — NOT 105 (OptiX 9.0.0)
-nm -D <prefix>/eic-opticks/install/lib/libCSGOptiX.so | grep g_optixFunctionTable
+nm -D <prefix>/simphony/install/lib/libCSGOptiX.so | grep g_optixFunctionTable
 # expected output:  g_optixFunctionTable_93
 # if you see:       g_optixFunctionTable_105  → wrong OptiX headers picked up, see Case 3
 ```
@@ -232,20 +247,28 @@ Only needed if cmake is confused or you changed `CMakeLists.txt`:
 
 ```bash
 source <prefix>/.envrc
+export PATH=/usr/local/cuda/bin:$PATH
 
-cd <prefix>/eic-opticks
-rm -rf build && mkdir build && cd build
+cd <prefix>/simphony
+rm -rf build install
 
-cmake .. \
+cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_INSTALL_PREFIX=<prefix>/eic-opticks/install \
-  -DCMAKE_PREFIX_PATH="<spack-view>;<prefix>/optix810-sdk" \
-  -DOptiX_INSTALL_DIR=<prefix>/optix810-sdk \
-  -DCMAKE_CUDA_ARCHITECTURES=89
+  -DCMAKE_CUDA_ARCHITECTURES=89 \
+  -DCMAKE_INSTALL_PREFIX=<prefix>/simphony/install \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DCMAKE_PREFIX_PATH="<spack-view>;<prefix>/optix810-sdk;/nfs/data/1/xning/edep_optic/hack/local" \
+  -DOptiX_INSTALL_DIR=<prefix>/optix810-sdk
 
-make -j8 install
+cmake --build build -j8 && cmake --install build
 ```
 
+> **From a clean `build/` you MUST pass two things or configure fails**:
+> - `-DCMAKE_PREFIX_PATH=...;/nfs/data/1/xning/edep_optic/hack/local` — otherwise
+>   `find_package(plog)` fails (plog lives in `hack/local`, not the spack view).
+> - `-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc` — nvcc is not on `PATH` via the
+>   spack env.
+>
 > **The single most critical flag**: `-DOptiX_INSTALL_DIR=<prefix>/optix810-sdk`
 >
 > This must point to the OptiX **8.1.0** SDK headers (ABI 93), NOT the 9.0.0 SDK
@@ -253,10 +276,10 @@ make -j8 install
 > fail with `OPTIX_ERROR_UNSUPPORTED_ABI_VERSION` because the installed GPU driver
 > (555.42.06) only supports up to ABI 93.
 
-#### After any eic-opticks rebuild — also rebuild the plugin
+#### After any Simphony rebuild — also rebuild the plugin
 
-The plugin links against eic-opticks headers and libraries, so always follow an
-eic-opticks rebuild with:
+The plugin links against Simphony headers and libraries, so always follow a
+Simphony rebuild with:
 
 ```bash
 source <prefix>/.envrc
@@ -330,8 +353,8 @@ for entry in t:
 | Plugin source | this repository |
 | Plugin build | `build/` |
 | Run macro | `macro/run_3gev_electron.mac` |
-| eic-opticks source | `<prefix>/eic-opticks/` |
-| eic-opticks install | `<prefix>/eic-opticks/install/` |
+| Simphony source | `<prefix>/simphony/` |
+| Simphony install | `<prefix>/simphony/install/` |
 | edep-sim source | `<prefix>/edep-sim/` |
 | edep-sim install | `<prefix>/edep-sim/install/` |
 | OptiX 8.1.0 headers | `<prefix>/optix810-sdk/` |
