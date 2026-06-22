@@ -34,7 +34,7 @@ constexpr G4double kResolutionScale = 1.0;
 }
 
 SimphonyScintProcess::SimphonyScintProcess(const G4String& name)
-    : G4VDiscreteProcess(name, fElectromagnetic)
+    : G4VRestDiscreteProcess(name, fElectromagnetic)
 {
     // Subtype 22 is Geant4's stock fScintillation enumerator value. Set
     // explicitly so process queries see a recognisable type.
@@ -58,29 +58,53 @@ G4double SimphonyScintProcess::GetMeanFreePath(const G4Track& /*aTrack*/,
     return DBL_MAX;
 }
 
+G4double SimphonyScintProcess::GetMeanLifeTime(const G4Track& /*aTrack*/,
+                                               G4ForceCondition* condition)
+{
+    // Force the AtRest action on every stopped charged particle (mirrors stock
+    // G4Scintillation, which is StronglyForced AtRest too) so a track that
+    // deposits its last energy at rest still scintillates.
+    *condition = StronglyForced;
+    return DBL_MAX;
+}
+
+// PostStep (in-flight) and AtRest (stopped) both run identical scintillation
+// logic on the step's energy deposit — funnel both through Scintillate().
 G4VParticleChange*
 SimphonyScintProcess::PostStepDoIt(const G4Track& aTrack, const G4Step& aStep)
+{
+    return Scintillate(aTrack, aStep);
+}
+
+G4VParticleChange*
+SimphonyScintProcess::AtRestDoIt(const G4Track& aTrack, const G4Step& aStep)
+{
+    return Scintillate(aTrack, aStep);
+}
+
+G4VParticleChange*
+SimphonyScintProcess::Scintillate(const G4Track& aTrack, const G4Step& aStep)
 {
     aParticleChange.Initialize(aTrack);
     aParticleChange.SetNumberOfSecondaries(0);
 
     const G4double TotalEnergyDeposit = aStep.GetTotalEnergyDeposit();
     if (TotalEnergyDeposit <= 0.0) {
-        return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+        return &aParticleChange;  // no scintillation this step
     }
 
     const G4Material* aMaterial = aTrack.GetMaterial();
-    if (!aMaterial) return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+    if (!aMaterial) return &aParticleChange;  // no scintillation this step
 
     G4MaterialPropertiesTable* mpt = aMaterial->GetMaterialPropertiesTable();
-    if (!mpt) return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+    if (!mpt) return &aParticleChange;  // no scintillation this step
 
     // Must have at least one scintillation component vector to be a
     // scintillator in the GDML sense.
     const G4MaterialPropertyVector* fastComp = mpt->GetProperty("FASTCOMPONENT");
     const G4MaterialPropertyVector* slowComp = mpt->GetProperty("SLOWCOMPONENT");
     if (!fastComp && !slowComp) {
-        return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+        return &aParticleChange;  // no scintillation this step
     }
 
     // ── 1. NumPhotons from DokeBirks visE ────────────────────────────────
@@ -89,10 +113,15 @@ SimphonyScintProcess::PostStepDoIt(const G4Track& aTrack, const G4Step& aStep)
                     ? emSat->VisibleEnergyDepositionAtAStep(&aStep)
                     : 0.0;
     if (visE <= 0.0) {
-        return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+        return &aParticleChange;  // no scintillation this step
     }
 
     const G4double MeanNumberOfPhotons = visE / kW_LAr_MeV;
+
+    std::cout << "[SimphonyScintProcess] MeanNumberOfPhotons="
+              << MeanNumberOfPhotons
+              << " (visE=" << visE/MeV << " MeV, W=19.5 eV)"
+              << " trk=" << aTrack.GetTrackID() << "\n";
 
     G4int NumTracks = 0;
     if (MeanNumberOfPhotons > 10.0) {
@@ -103,7 +132,7 @@ SimphonyScintProcess::PostStepDoIt(const G4Track& aTrack, const G4Step& aStep)
     }
 
     if (NumTracks <= 0) {
-        return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+        return &aParticleChange;  // no scintillation this step
     }
 
     // ── 2. Resolve Ratio_timeconstant for this particle ──────────────────
@@ -121,7 +150,7 @@ SimphonyScintProcess::PostStepDoIt(const G4Track& aTrack, const G4Step& aStep)
     if (!Ratio_timeconstant) {
         // No fast/slow split data → cannot build gensteps with the fork's
         // payload shape. Same early-out as the fork.
-        return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+        return &aParticleChange;  // no scintillation this step
     }
 
     // ── 3. Per-photon Poisson split across components ────────────────────
@@ -163,5 +192,5 @@ SimphonyScintProcess::PostStepDoIt(const G4Track& aTrack, const G4Step& aStep)
               << " NumTracks=" << NumTracks
               << "\n";
 
-    return G4VDiscreteProcess::PostStepDoIt(aTrack, aStep);
+    return &aParticleChange;  // gensteps collected for the GPU; no CPU secondaries
 }

@@ -27,6 +27,8 @@
 #include <TLorentzVector.h>
 
 #include <iostream>
+#include <cstdlib>
+#include <string>
 
 // Per-event branch buffers (filled by SimphonyEventAction, stored here as statics
 // so TTree branches keep valid pointers across events).
@@ -88,12 +90,21 @@ void SimphonyRunAction::BeginOfRunAction(const G4Run* /*run*/)
     // The lighttrap.gdml SurfaceDetector registration calls
     // SetKillOpticalPhotons(false) so Geant4 would track photons on CPU.
     // Override that: we kill photons on CPU and let the GPU handle transport.
+    // EDEP_SIMPHONY_DUAL=1 keeps CPU optical-photon tracking ON so stock
+    // G4Scintillation's photons reach the SurfaceSD (→ PhotonDetectors),
+    // alongside the GPU genstep path. Default (unset/0): kill on CPU.
+    const char* dual_c = std::getenv("EDEP_SIMPHONY_DUAL");
+    const std::string dual = dual_c ? std::string(dual_c) : std::string("0");
+    const bool useDual = (dual == "1" || dual == "true" || dual == "on");
+
     auto* sa = dynamic_cast<EDepSim::UserStackingAction*>(
                    const_cast<G4UserStackingAction*>(
                        G4RunManager::GetRunManager()->GetUserStackingAction()));
     if (sa) {
-        sa->SetKillOpticalPhotons(true);
-        std::cout << "[SimphonyPlugin] Forced KillOpticalPhotons=true (GPU handles transport)\n";
+        sa->SetKillOpticalPhotons(!useDual);
+        std::cout << "[SimphonyPlugin] KillOpticalPhotons=" << (!useDual)
+                  << (useDual ? " (DUAL: CPU also tracks photons)"
+                              : " (GPU handles transport)") << "\n";
     }
 
     // Register custom sensor identifier before geometry translation so that
