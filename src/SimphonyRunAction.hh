@@ -4,6 +4,7 @@
 
 class TTree;
 class TBranch;
+class TFile;
 struct GPUHitRecord;
 
 /// Initialises G4CXOpticks at begin-of-run, opens a parallel GPU hit TTree
@@ -17,8 +18,19 @@ public:
     void BeginOfRunAction(const G4Run* run) override;
     void EndOfRunAction(const G4Run* run) override;
 
-    /// Accessed by SimphonyEventAction to fill the tree each event.
-    TTree* GetGPUTree() const { return fGPUTree; }
+    /// Accessed by SimphonyEventAction to fill the trees each event.
+    TTree* GetGPUTree()      const { return fGPUTree; }
+    TTree* GetGPUTrackTree() const { return fGPUTrackTree; }
+    TTree* GetGPUStepTree()  const { return fGPUStepTree; }
+
+    /// CPU photon fate tree (filled by SimphonyCpuPhotonTracker). Created here
+    /// so it lands in the same ROOT file.
+    void   CreateCPUTrackTree(TFile* f);
+    TTree* GetCPUTrackTree()  const { return fCPUTrackTree; }
+    TTree* GetCPUStepTree()   const { return fCPUStepTree; }
+    /// Singleton lookup so the dlopen'd tracking-action factory can find the
+    /// active run action (and thus the CPU tree) without extra plumbing.
+    static SimphonyRunAction* Instance() { return sInstance; }
 
     // ── Debug accumulators (process-wide, reset at BeginOfRun) ───────────
     // (4) total photon count from edep-sim's DokeBirks visE / 19.5 eV
@@ -29,5 +41,11 @@ public:
     static int64_t  sNewGenstepsThisRun;
 
 private:
-    TTree* fGPUTree = nullptr;
+    TTree* fGPUTree      = nullptr;
+    TTree* fGPUTrackTree = nullptr;  // all photons + fate
+    TTree* fGPUStepTree  = nullptr;  // full trajectory points
+    TTree* fCPUTrackTree = nullptr;  // CPU photon fate
+    TTree* fCPUStepTree  = nullptr;  // CPU full trajectory points
+
+    static SimphonyRunAction* sInstance;
 };

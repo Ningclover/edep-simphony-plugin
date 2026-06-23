@@ -4,16 +4,33 @@
 
 #include <G4Step.hh>
 #include <G4Track.hh>
+#include <G4StepPoint.hh>
+#include <G4VProcess.hh>
 #include <G4ParticleDefinition.hh>
 #include <G4Material.hh>
+#include <G4VPhysicalVolume.hh>
+#include <G4EventManager.hh>
+#include <G4Event.hh>
 #include <G4SystemOfUnits.hh>
 
 #include "SEvt.hh"
 #include "sgs.h"
 
+#include <TTree.h>
+#include <TLorentzVector.h>
+
 #include <iostream>
 #include <iomanip>
 #include <cctype>
+#include <cstring>
+
+// CPUPhotonSteps branch-buffer accessors (defined in SimphonyRunAction.cc).
+int&            GetGpsEventId();
+int&            GetGpsTrackId();
+int&            GetGpsStep();
+char*           GetGpsProc();
+char*           GetGpsVolume();
+TLorentzVector& GetGpsPos();
 
 // DokeBirks constants (mirrors EDepSimDokeBirksSaturation.cc — see
 // my_optic_wiki "EDepSim Photon Yield Pipeline")
@@ -34,6 +51,34 @@ void SimphonyStepAction::UserSteppingAction(const G4Step* step)
     const G4Track* trk = step->GetTrack();
     const G4ParticleDefinition* pdef = trk ? trk->GetParticleDefinition() : nullptr;
     bool isCharged = pdef && pdef->GetPDGCharge() != 0.0;
+
+    // ── Record the full CPU trajectory of every optical photon ────────────
+    // edep-sim's Trajectories branch collapses the path to start+end; here we
+    // log EVERY step of each CPU-tracked optical photon to CPUPhotonSteps so
+    // the bounce-by-bounce path is available (mirrors GPUPhotonSteps).
+    if (pdef && pdef->GetPDGEncoding() == -22) {
+        SimphonyRunAction* ra = SimphonyRunAction::Instance();
+        TTree* st = ra ? ra->GetCPUStepTree() : nullptr;
+        if (st) {
+            const G4StepPoint* post = step->GetPostStepPoint();
+            const G4VProcess*  proc = post ? post->GetProcessDefinedStep() : nullptr;
+            const G4VPhysicalVolume* pv = post ? post->GetPhysicalVolume() : nullptr;
+            auto* evt = G4EventManager::GetEventManager()->GetConstCurrentEvent();
+            GetGpsEventId() = evt ? evt->GetEventID() : -1;
+            GetGpsTrackId() = trk->GetTrackID();
+            GetGpsStep()    = trk->GetCurrentStepNumber();
+            std::strncpy(GetGpsProc(),
+                         proc ? proc->GetProcessName().c_str() : "?", 23);
+            GetGpsProc()[23] = '\0';
+            std::strncpy(GetGpsVolume(), pv ? pv->GetName().c_str() : "OutOfWorld", 47);
+            GetGpsVolume()[47] = '\0';
+            if (post) {
+                GetGpsPos().SetXYZT(post->GetPosition().x(), post->GetPosition().y(),
+                                    post->GetPosition().z(), post->GetGlobalTime());
+            }
+            st->Fill();
+        }
+    }
 
     const G4StepPoint* prePt = step->GetPreStepPoint();
     const G4Material*  mat   = prePt ? prePt->GetMaterial() : nullptr;

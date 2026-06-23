@@ -30,4 +30,12 @@ private:
     int64_t fGenstepCountAtEventStart = 0;
 
     int RecoverTrackId(int photonIndex) const;
+
+    /// Save ALL photons (detected or not) + final fate to GPUPhotonTracks and
+    /// the full per-photon trajectory points to GPUPhotonSteps.
+    void SaveAllPhotonsAndTrajectories(const G4Event* event, int64_t nphoton);
+
+    /// Pure-photon mode (EDEP_SIMPHONY_INPUT_PHOTONS=1): capture the event's
+    /// primary optical photons and inject them into Opticks as input photons.
+    void InjectPrimaryPhotons(const G4Event* event);
 };

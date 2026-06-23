@@ -15,10 +15,12 @@
 #include "SimphonyEventAction.hh"
 #include "SimphonyStepAction.hh"
 #include "SimphonyPhysicsSwap.hh"
+#include "SimphonyCpuPhotonTracker.hh"
 
 #include <G4UserRunAction.hh>
 #include <G4UserEventAction.hh>
 #include <G4UserSteppingAction.hh>
+#include <G4UserTrackingAction.hh>
 #include <G4VPhysicsConstructor.hh>
 
 // Singleton pointers so event/step actions can find the run action.
@@ -52,6 +54,14 @@ G4UserSteppingAction* CreateUserStepAction(const char* option)
 G4VPhysicsConstructor* CreatePhysicsConstructor(const char* /*option*/)
 {
     return new SimphonyPhysicsSwap();
+}
+
+// Records the FATE of every CPU-tracked optical photon (DUAL mode). Installed
+// as an external tracking action via:
+//   /edep/actions/loadUserTrackAction $(PLUGIN_LIB) CreateUserTrackAction ""
+G4UserTrackingAction* CreateUserTrackAction(const char* /*option*/)
+{
+    return new SimphonyCpuPhotonTracker();
 }
 
 } // extern "C"

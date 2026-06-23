@@ -36,6 +36,7 @@ add_library(edep-simphony-plugin SHARED
     src/SimphonyStepAction.cc
     src/SimphonyPhysicsSwap.cc
     src/SimphonyScintProcess.cc
+    src/SimphonyCpuPhotonTracker.cc
     src/plugin_entry.cc
 )
 
