@@ -43,6 +43,25 @@ edep-sim process (one event)
 
 **CPU and GPU are strictly sequential**: the CPU blocks during `simulate()`, then resumes to collect hits. There is no overlap between events.
 
+### Run modes at a glance
+
+The default pipeline (above) is **GPU-only**: CPU photons are killed, only the GPU
+transports light, and only detected hits (`GPUPhotonHits`) are written. Several
+runtime modes — all toggled by `EDEP_SIMPHONY_*` environment variables — layer
+extra behaviour on top:
+
+| Mode | Env | What it adds |
+|---|---|---|
+| **GPU-only** (default) | *(none)* | Kill CPU photons; GPU genstep transport → `GPUPhotonHits` |
+| **DUAL** | `EDEP_SIMPHONY_DUAL=1` | Also keep CPU optical tracking on, so a stock `G4Scintillation` tracks photons on CPU **alongside** the GPU. CPU and GPU light land in the **same** ROOT file for a per-event comparison |
+| **All-photon / trajectory** | `EDEP_SIMPHONY_DEBUGHEAVY=1` | Put Opticks in `DebugHeavy` event mode → save **every** GPU photon (detected or not) + its full bounce-by-bounce path to `GPUPhotonTracks` / `GPUPhotonSteps` |
+| **Input-photon** | `EDEP_SIMPHONY_INPUT_PHOTONS=1` | Capture the event's **primary optical photons** and inject them into Opticks as input photons, so the GPU transports the *identical* photons the CPU tracks (clean transport comparison). Implies `DebugHeavy` |
+
+See **GPU Controls** below for the full variable list, and the
+[`tests_benchmark` driver](../tests_benchmark/README.md) for ready-made
+`run.sh` modes (`both`/`cpu`/`gpu`/`dual`/`photon`/`photon1`/`dualtraj`) that
+set these for you.
+
 ---
 
 ## Key Components
@@ -68,24 +87,22 @@ edep-sim process (one event)
 
 | File | Role |
 |---|---|
-| `src/SimphonyRunAction.cc` | Forces `KillOpticalPhotons=true`; registers `LArTPCSensorIdentifier`; calls `SEvt::CreateOrReuse()` then `G4CXOpticks::SetGeometry()`; creates GPUPhotonHits TTree |
-| `src/SimphonyEventAction.cc` | Calls `simulate()`; collects hits into TTree; recovers TrackId |
-| `src/SimphonyStepAction.cc` | Records genstep index → G4 TrackID provenance map |
-| `src/SimphonyPhysicsSwap.cc` | Replaces G4Cerenkov/G4Scintillation with instrumented versions |
+| `src/SimphonyRunAction.cc` | Reads the `EDEP_SIMPHONY_*` knobs and configures `SEventConfig` (DebugHeavy, MaxSlot/Photon/Record/Bounce) **before** `SEvt` is created; sets `KillOpticalPhotons` (off in DUAL); registers `LArTPCSensorIdentifier`; calls `SEvt::CreateOrReuse()` then `G4CXOpticks::SetGeometry()`; creates **all five** TTrees (`GPUPhotonHits`, `GPUPhotonTracks`, `GPUPhotonSteps`, `CPUPhotonTracks`, `CPUPhotonSteps`) and owns their static branch buffers |
+| `src/SimphonyEventAction.cc` | Calls `simulate()`; collects detected hits → `GPUPhotonHits`; in DebugHeavy/input-photon mode walks **all** GPU photons + their record buffer → `GPUPhotonTracks`/`GPUPhotonSteps`; recovers TrackId via genstep provenance; in input-photon mode captures primary optical photons and injects them as Opticks input photons |
+| `src/SimphonyStepAction.cc` | Records genstep index → G4 TrackID provenance map; logs DokeBirks dE/dx + photon-yield sampling; fills `CPUPhotonSteps` (every step of every CPU optical photon) |
+| `src/SimphonyCpuPhotonTracker.cc/.hh` | External `G4UserTrackingAction` (DUAL/CPU modes): records the **fate** of every CPU-tracked optical photon (detected, absorbed, WLS, escaped, …) → `CPUPhotonTracks`. Reads `G4OpBoundaryProcess::GetStatus()` only at a real geometry boundary to avoid stale `Detection` leaking onto bulk steps |
+| `src/SimphonyPhysicsSwap.cc` | Replaces G4Cerenkov/G4Scintillation with instrumented versions; in DUAL mode also installs a stock `G4Scintillation` (+ DokeBirks `AddSaturation`, stacking on) so the CPU produces real trackable photons |
 | `src/LArTPCSensorIdentifier.h` | Custom sensor identifier: finds volumes with a G4 SensitiveDetector (works for any geometry, not just PMT-named volumes) |
-| `src/plugin_entry.cc` | `extern "C"` factory entry points |
+| `src/plugin_entry.cc` | `extern "C"` factory entry points (RunAction, EventAction, StepAction, PhysicsConstructor, **TrackAction**) |
 | `macro/run_3gev_electron.mac` | Run macro (particle gun, geometry update, plugin load) |
 | `macro/simphony_plugin.mac` | Loads plugin actions via `/edep/actions/load*` |
 | `setup_env.example.sh` | Template for `setup_env.sh` — copy and edit the paths for your machine |
 | `setup_env.sh` (gitignored) | User-local copy of the template; sets all required environment variables |
 
-### 4. Geometry
-- **lighttrap.gdml**: `${OPTIC_GPU_ROOT}/light_trap_ggd/lighttrap.gdml`
-  - 100×100×100 cm LAr world
-  - 30 SiPMs (0.6×0.6 cm each) with EFFICIENCY=1.0, REFLECTIVITY=0.0
-  - Vikuiti reflective foil on back plane and edges
-  - pTP wavelength-shifter and blue WLS acrylic plates
-  - LAr RINDEX properly defined (1.23–1.45 across optical/VUV range)
+> **Geometry**: the plugin is geometry-agnostic — point `-g` at any GDML whose
+> LAr has proper optical material properties (RINDEX etc.) and whose photon
+> sensors carry a G4 SensitiveDetector. `LArTPCSensorIdentifier` finds the
+> sensor volumes automatically (no PMT naming required).
 
 ---
 
@@ -164,7 +181,7 @@ The simplest path is to just `source setup_env.sh`, which sets all of the above 
 
 ```bash
 edep-sim -p QGSP_BERT \
-         -g <path-to-geometry>/lighttrap.gdml \
+         -g <path-to-geometry>.gdml \
          -o output.root \
          -e 1000 \
          macro/run_3gev_electron.mac
@@ -176,6 +193,49 @@ The particle gun is configured in `run_3gev_electron.mac`. Edit `/gps/energy` an
 > **Note**: despite its name, `run_3gev_electron.mac` currently fires a **1 MeV**
 > electron (`/gps/energy 1 MeV`, `/gps/position 0 0 -400 mm`). Change `/gps/energy`
 > if you want a different beam energy.
+
+---
+
+## GPU Controls (`EDEP_SIMPHONY_*` environment variables)
+
+These are read by the plugin at runtime (in `SimphonyRunAction::BeginOfRunAction`,
+before `SEvt` is created). All are optional — unset means the default GPU-only,
+hit-only path.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `EDEP_SIMPHONY_DUAL` | `1` = also track optical photons on **CPU** (stock `G4Scintillation`) next to the GPU genstep path, so both write to the same ROOT file. Keeps `KillOpticalPhotons` **off** | unset (GPU-only, CPU photons killed) |
+| `EDEP_SIMPHONY_DEBUGHEAVY` | `1` = Opticks `DebugHeavy` event mode: gather photon + record + hit, so **all** GPU photons + full per-photon trajectory are saved (`GPUPhotonTracks`/`GPUPhotonSteps`). Memory-hungry — few-photon runs only | unset (hit-only `Minimal` mode) |
+| `EDEP_SIMPHONY_INPUT_PHOTONS` | `1` = inject the event's **primary optical photons** into Opticks as input photons (instead of relying on scintillation gensteps). Implies DebugHeavy | unset |
+| `EDEP_SIMPHONY_MAXBOUNCE` | Max GPU bounces per photon before it is killed (the transport bounce cap). Applies in **all** modes. 128 nm photons Rayleigh-scatter heavily in LAr and need a high budget; too low → photons hit the cap before being absorbed/detected | Opticks default (~31) |
+| `EDEP_SIMPHONY_MAXRECORD` | Length of the saved per-photon trajectory buffer. Clamps `MaxBounce` to `MaxRecord-1` unless `MAXBOUNCE` is set after | auto (DebugHeavy) |
+| `EDEP_SIMPHONY_MAXSLOT` | GPU photon-slot / photon budget for DebugHeavy (record alloc = MaxSlot × MaxRecord). Capped small for debug runs to avoid CUDA OOM | `200000` (DebugHeavy) |
+| `EDEP_SIMPHONY_CERENKOV` | `0` = disable Cerenkov (scintillation-only comparison) | — |
+| `EDEP_SIMPHONY_SCINT` | Scint process: `thin` (`SimphonyScintProcess`, default) or `fork` (`Local_DsG4Scintillation`) | `thin` |
+
+> **Record-length hard cap**: the per-photon GPU trajectory is also bounded by
+> Opticks `sseq::SLOTS` (baked into `simphony/sysrap/sseq.h`). To store paths
+> longer than that you must raise **both** `EDEP_SIMPHONY_MAXBOUNCE` (env) **and**
+> `sseq::SLOTS` (recompile simphony). The CPU side has **no** bounce cap — it
+> propagates until physically absorbed/detected.
+
+### Loading the CPU tracking action (DUAL / CPU fate)
+
+To fill `CPUPhotonTracks` (per-photon CPU fate), the tracking-action factory must
+be loaded in the macro alongside the other plugin actions:
+
+```
+/edep/actions/loadUserTrackAction $(PLUGIN_LIB) CreateUserTrackAction ""
+```
+
+`CPUPhotonSteps` (full CPU path) is filled by the step action and additionally
+needs edep-sim's own trajectory saving turned on in the macro **before**
+`/edep/update`:
+
+```
+/edep/db/set/savePhotonTraj  true
+/edep/db/set/saveAllPrimTraj true
+```
 
 ---
 
@@ -304,19 +364,38 @@ make -j4
 
 ## Reading the Output ROOT File
 
+Depending on the run mode, the file holds up to five plugin TTrees alongside
+edep-sim's own `EDepSimEvents`:
+
+| Tree | Written when | One row per | Contents |
+|---|---|---|---|
+| `GPUPhotonHits` | always | detected GPU photon | the detected optical hits |
+| `GPUPhotonTracks` | DebugHeavy / input-photon | every GPU photon | per-photon final **fate** (detected or not + why) |
+| `GPUPhotonSteps` | DebugHeavy / input-photon | every GPU step point | full bounce-by-bounce GPU path |
+| `CPUPhotonTracks` | DUAL + `CreateUserTrackAction` | every CPU optical photon | per-photon CPU **fate** |
+| `CPUPhotonSteps` | DUAL + photon-traj saving | every CPU step point | full CPU path |
+
 ```python
 import uproot
 import numpy as np
 
 f = uproot.open("output.root")
 
-# GPU optical photon hits
+# GPU optical photon hits (always present)
 hits = f["GPUPhotonHits"]
 print(hits.keys())
 # ['EventId', 'TrackId', 'Process', 'Wavelength', 'HitPos', 'StartPos']
 
 df = hits.arrays(library="pd")
 print(df.head())
+
+# All-photon fate + trajectory (DebugHeavy / input-photon modes)
+tracks = f["GPUPhotonTracks"].arrays(library="pd")  # one row per photon + fate
+steps  = f["GPUPhotonSteps"].arrays(library="pd")   # full GPU bounce path
+
+# CPU side (DUAL mode)
+cpu_tracks = f["CPUPhotonTracks"].arrays(library="pd")
+cpu_steps  = f["CPUPhotonSteps"].arrays(library="pd")
 
 # CPU ionisation + trajectory info
 events = f["EDepSimEvents"]
@@ -333,7 +412,7 @@ for entry in t:
           entry.HitPos.X(), entry.HitPos.Y(), entry.HitPos.Z())
 ```
 
-**Branch descriptions:**
+**`GPUPhotonHits` branches:**
 
 | Branch | Type | Description |
 |---|---|---|
@@ -344,20 +423,70 @@ for entry in t:
 | `HitPos` | TLorentzVector | Hit position (x,y,z in mm; t in ns) |
 | `StartPos` | TLorentzVector | Genstep origin (reserved; currently zero-filled) |
 
+**`GPUPhotonTracks` branches** (one row per GPU photon, detected or not):
+
+| Branch | Type | Description |
+|---|---|---|
+| `EventId` | int | Geant4 event number |
+| `PhotonId` | int | Photon index within the event |
+| `TrackId` | int | GPU photon global index (one per photon; persists across WLS re-emission) |
+| `ParentId` | int | Charged G4 parent track of the genstep, or **-1** for input/primary photons |
+| `Process` | int | 0 = Cerenkov, 2 = Scintillation, 3 = TORCH (primary), -1 |
+| `Wavelength` | float | nm |
+| `Flag` | unsigned | Terminating Opticks flag bit |
+| `FlagMask` | unsigned | OR of all history flags |
+| `Detected` | int | 1 if SURFACE_DETECT / EFFICIENCY_COLLECT |
+| `Fate` | char[8] | Short reason: `SD`, `AB`, `SA`, `MI`, … |
+| `NStep` | int | Number of recorded trajectory points |
+| `StartPos` / `EndPos` | TLorentzVector | First / last record point (mm, ns) |
+
+**`GPUPhotonSteps` branches** (one row per GPU step point):
+
+| Branch | Type | Description |
+|---|---|---|
+| `EventId`, `PhotonId` | int | Identify the photon |
+| `Step` | int | Step index along the photon |
+| `Flag` | unsigned | Opticks flag at this step |
+| `FlagAbbr` | char[8] | Abbreviated flag |
+| `Pos` | TLorentzVector | Step position (mm, ns) |
+
+**`CPUPhotonTracks` branches** (one row per CPU-tracked optical photon):
+
+| Branch | Type | Description |
+|---|---|---|
+| `EventId`, `TrackId`, `ParentId` | int | G4 identifiers |
+| `Wavelength` | float | nm |
+| `Energy` | float | eV |
+| `Detected` | int | 1 if boundary status was `Detection` |
+| `Fate` | char[16] | `SD`, `SA`, `AB`, `WLS`, `MI`, `Reflect`, `Rayleigh`, or the process name |
+| `EndVolume` | char[64] | Volume where the photon ended (`OutOfWorld` if it escaped) |
+| `NStep` | int | Number of geometry steps |
+| `StartPos` / `EndPos` | TLorentzVector | Creation / termination point (mm, ns) |
+
+**`CPUPhotonSteps` branches** (one row per CPU optical-photon step):
+
+| Branch | Type | Description |
+|---|---|---|
+| `EventId`, `TrackId` | int | G4 identifiers |
+| `Step` | int | G4 step number along the photon |
+| `Process` | char[24] | Process that ended the step |
+| `Volume` | char[48] | Post-step volume |
+| `Pos` | TLorentzVector | Post-step position (mm, ns) |
+
+> **Fate codes** (shared CPU/GPU vocabulary): `SD` detected on a sensor ·
+> `SA` absorbed at a surface · `AB` bulk absorption in LAr · `WLS` absorbed by a
+> wavelength shifter · `MI` left the world (escaped) · `Reflect`/`Rayleigh` ended
+> on a reflection/scatter.
+
 ---
 
-## Key File Locations
+## Relevant Source
 
 | Item | Path |
 |---|---|
 | Plugin source | this repository |
 | Plugin build | `build/` |
-| Run macro | `macro/run_3gev_electron.mac` |
-| Simphony source | `<prefix>/simphony/` |
-| Simphony install | `<prefix>/simphony/install/` |
-| edep-sim source | `<prefix>/edep-sim/` |
-| edep-sim install | `<prefix>/edep-sim/install/` |
-| OptiX 8.1.0 headers | `<prefix>/optix810-sdk/` |
-| LightTrap geometry | `<prefix>/light_trap_ggd/lighttrap.gdml` |
-| LArTPC geometry | `<prefix>/lartpc-geo/lartpc.gdml` |
-| Spack environment | `<prefix>/.envrc` |
+| Simphony repo | [github.com/Ningclover/simphony](https://github.com/Ningclover/simphony) — source `<prefix>/simphony/`, install `<prefix>/simphony/install/` |
+| edep-sim repo | [github.com/ClarkMcGrew/edep-sim](https://github.com/ClarkMcGrew/edep-sim) — source `<prefix>/edep-sim/`, install `<prefix>/edep-sim/install/` |
+| gegede (geometry tool) | [github.com/brettviren/gegede](https://github.com/brettviren/gegede) |
+| Benchmark CPU-vs-GPU driver | [github.com/Ningclover/tests_benchmark](https://github.com/Ningclover/tests_benchmark) — example geometry, `.mac` files, and visual tools that drive this plugin |
