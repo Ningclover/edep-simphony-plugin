@@ -6,6 +6,10 @@ install/
 # → setup_env.sh and edit the paths for your machine.
 setup_env.sh
 
+# Local-only docs: machine-specific build/recompile notes (paths, OptiX SDK,
+# driver/ABI details). Kept out of the committed README.
+*.local.md
+
 # Runtime artefacts produced by edep-sim / eic-opticks (often contain absolute
 # paths in run_meta.txt header rows).
 *.npy

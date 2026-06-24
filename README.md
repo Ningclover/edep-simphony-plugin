@@ -20,28 +20,43 @@ The **edep-Simphony plugin** (`libedep-simphony-plugin.so`) integrates **edep-si
 ```
 edep-sim process (one event)
   │
-  ├─ CPU: Geant4 tracks electron step by step
-  │     Cerenkov/Scintillation fires at each step
-  │     → instrumented process records genstep in SEvt buffer (Simphony, GPU-side)
-  │     → optical photon secondaries KILLED on CPU (GPU handles them)
+  │  ┌─────────────────────────────── CPU (Geant4) ───────────────────────────────┐
+  ├─▶│ Geant4 tracks the charged particle step by step                            │
+  │  │   Cerenkov/Scintillation fires at each step                                │
+  │  │   → instrumented process records a genstep in the SEvt buffer (GPU-side)   │
+  │  │   → optical-photon secondaries are KILLED on CPU   (GPU-only, default)     │
+  │  │       …or, in DUAL mode, ALSO tracked on CPU by a stock G4Scintillation    │
+  │  │         → CPU hits reach the SurfaceSD; per-photon fate + path recorded    │
+  │  │ SimphonyStepAction records genstepIdx → G4 TrackID provenance map          │
+  │  │ (input-photon mode: primary optical photons are injected into SEvt as      │
+  │  │  Opticks input photons instead of relying on gensteps)                     │
+  │  └────────────────────────────────────────────────────────────────────────────┘
+  │            │  EndOfEventAction calls G4CXOpticks::simulate()  [blocking]
+  │            ▼
+  │  ┌─────────────────────────── GPU (Simphony / OptiX) ──────────────────────────┐
+  │  │ OptiX ray-traces every photon in the event                                 │
+  │  │   bounce / scatter / absorb / WLS-reemit until killed or detected          │
+  │  │   photon hits a surface with EFFICIENCY>0 → SURFACE_DETECT flag            │
+  │  │   max bounces per photon = EDEP_SIMPHONY_MAXBOUNCE                          │
+  │  └────────────────────────────────────────────────────────────────────────────┘
+  │            │  CPU resumes after the GPU finishes
+  │            ▼
+  │  ┌─────────────────────────────── CPU (readout) ──────────────────────────────┐
+  ├─▶│ reads hits from SEvt → GPUPhotonHits  (recovers TrackId via provenance map) │
+  │  │ DebugHeavy/input-photon: walk ALL photons + their record buffer            │
+  │  │   → GPUPhotonTracks (per-photon fate) + GPUPhotonSteps (full path)         │
+  │  └────────────────────────────────────────────────────────────────────────────┘
   │
-  ├─ CPU: SimphonyStepAction records genstepIdx → G4 TrackID map
-  │
-  ├─ CPU: EndOfEventAction calls G4CXOpticks::simulate()  [blocking]
-  │         GPU: OptiX ray-traces all photons in this event
-  │         GPU: photon hits surface with EFFICIENCY>0 → SURFACE_DETECT flag
-  │       CPU resumes after GPU finishes
-  │
-  ├─ CPU: reads hits from SEvt → fills GPUPhotonHits TTree
-  │       recovers TrackId via genstep provenance map
-  │
-  └─ edep-sim ROOT file
-       EDepSimEvents TTree      ← CPU ionisation hits, trajectories, primaries
-       GPUPhotonHits TTree      ← GPU optical hits: EventId, TrackId, Process,
-                                   Wavelength(nm), HitPos(mm,ns), StartPos
+  └─ edep-sim ROOT file (one file, up to 5 plugin trees + EDepSimEvents)
+       EDepSimEvents    ← CPU ionisation hits, trajectories, primaries
+       GPUPhotonHits    ← GPU detected optical hits                  (always)
+       GPUPhotonTracks  ← every GPU photon + final fate             (DebugHeavy)
+       GPUPhotonSteps   ← every GPU bounce point (full path)        (DebugHeavy)
+       CPUPhotonTracks  ← every CPU photon + final fate             (DUAL)
+       CPUPhotonSteps   ← every CPU step point (full path)          (DUAL)
 ```
 
-**CPU and GPU are strictly sequential**: the CPU blocks during `simulate()`, then resumes to collect hits. There is no overlap between events.
+**CPU and GPU are strictly sequential**: the CPU blocks during `simulate()`, then resumes to collect hits. There is no overlap between events. The GPU box runs entirely inside the single `G4CXOpticks::simulate()` call.
 
 ### Run modes at a glance
 
@@ -213,11 +228,14 @@ hit-only path.
 | `EDEP_SIMPHONY_CERENKOV` | `0` = disable Cerenkov (scintillation-only comparison) | — |
 | `EDEP_SIMPHONY_SCINT` | Scint process: `thin` (`SimphonyScintProcess`, default) or `fork` (`Local_DsG4Scintillation`) | `thin` |
 
-> **Record-length hard cap**: the per-photon GPU trajectory is also bounded by
-> Opticks `sseq::SLOTS` (baked into `simphony/sysrap/sseq.h`). To store paths
+> **Record-length hard cap**: the per-photon GPU *flag-history* record is also
+> bounded by Opticks `sseq::SLOTS` (= `16 × NSEQ`, baked into
+> `simphony/sysrap/sseq.h`; currently **112** with `NSEQ = 7`). To record paths
 > longer than that you must raise **both** `EDEP_SIMPHONY_MAXBOUNCE` (env) **and**
-> `sseq::SLOTS` (recompile simphony). The CPU side has **no** bounce cap — it
-> propagates until physically absorbed/detected.
+> `NSEQ` (recompile simphony). Note `MAXBOUNCE` is the *transport* kill — a photon
+> may be allowed to keep bouncing well past the record length (only the first
+> `SLOTS` points are stored). The CPU side has **no** bounce cap — it propagates
+> until physically absorbed/detected.
 
 ### Loading the CPU tracking action (DUAL / CPU fate)
 
@@ -235,129 +253,6 @@ needs edep-sim's own trajectory saving turned on in the macro **before**
 ```
 /edep/db/set/savePhotonTraj  true
 /edep/db/set/saveAllPrimTraj true
-```
-
----
-
-## How to Recompile
-
-> **Easiest path**: the helper script `<prefix>/tests/recompile.sh` rebuilds any
-> or all of the three components in the correct dependency order and verifies the
-> plugin's library links. E.g. `./recompile.sh plugin`, `./recompile.sh simphony
-> --clean`, or `./recompile.sh all -j8`. The manual steps below document what it
-> does, in case you need to debug a build.
-
-### Recompile the plugin only (most common)
-
-Do this after editing any file in `src/`:
-
-```bash
-source <prefix>/.envrc
-cd <path-to-this-repo>/build
-make -j4
-# No install needed — edep-sim loads the .so directly from the build directory
-```
-
-### Recompile edep-sim
-
-Do this only if you change files in `edep-sim/src/`:
-
-```bash
-source <prefix>/.envrc
-cd <prefix>/edep-sim/build
-make -j4 install   # must install, not just make
-```
-
-The installed binary is at `edep-sim/install/bin/edep-sim`.
-
-### Recompile Simphony
-
-When the `simphony/build/` directory has a valid cmake cache (i.e. it was already
-configured at the current path), there are three cases depending on what you changed.
-
-#### Case 1: Changed a `.cc` or `.hh` file (most common)
-
-CMake tracks dependencies automatically — just rebuild:
-
-```bash
-source <prefix>/.envrc
-cd <prefix>/simphony/build
-make -j8 install
-```
-
-Install is required. The plugin and edep-sim load from `simphony/install/lib/`.
-
-#### Case 2: Changed a CUDA kernel (`.cu` file, especially in `CSGOptiX/`)
-
-Same command as Case 1 — `make -j8 install` rebuilds the PTX too. Afterwards verify:
-
-```bash
-# PTX timestamp should be recent
-ls -lh <prefix>/simphony/install/lib/CSGOptiX7.ptx
-
-# ABI must still be 93 (OptiX 8.1.0) — NOT 105 (OptiX 9.0.0)
-nm -D <prefix>/simphony/install/lib/libCSGOptiX.so | grep g_optixFunctionTable
-# expected output:  g_optixFunctionTable_93
-# if you see:       g_optixFunctionTable_105  → wrong OptiX headers picked up, see Case 3
-```
-
-#### Case 3: Full clean rebuild from scratch
-
-Only needed if cmake is confused or you changed `CMakeLists.txt`:
-
-```bash
-source <prefix>/.envrc
-export PATH=/usr/local/cuda/bin:$PATH
-
-cd <prefix>/simphony
-rm -rf build install
-
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_CUDA_ARCHITECTURES=89 \
-  -DCMAKE_INSTALL_PREFIX=<prefix>/simphony/install \
-  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
-  -DCMAKE_PREFIX_PATH="<spack-view>;<prefix>/optix810-sdk;/nfs/data/1/xning/edep_optic/hack/local" \
-  -DOptiX_INSTALL_DIR=<prefix>/optix810-sdk
-
-cmake --build build -j8 && cmake --install build
-```
-
-> **From a clean `build/` you MUST pass two things or configure fails**:
-> - `-DCMAKE_PREFIX_PATH=...;/nfs/data/1/xning/edep_optic/hack/local` — otherwise
->   `find_package(plog)` fails (plog lives in `hack/local`, not the spack view).
-> - `-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc` — nvcc is not on `PATH` via the
->   spack env.
->
-> **The single most critical flag**: `-DOptiX_INSTALL_DIR=<prefix>/optix810-sdk`
->
-> This must point to the OptiX **8.1.0** SDK headers (ABI 93), NOT the 9.0.0 SDK
-> (ABI 105). The build will succeed with either, but at runtime OptiX 9.0.0 will
-> fail with `OPTIX_ERROR_UNSUPPORTED_ABI_VERSION` because the installed GPU driver
-> (555.42.06) only supports up to ABI 93.
-
-#### After any Simphony rebuild — also rebuild the plugin
-
-The plugin links against Simphony headers and libraries, so always follow a
-Simphony rebuild with:
-
-```bash
-source <prefix>/.envrc
-cd <path-to-this-repo>/build
-make -j4
-```
-
-### Reconfigure the plugin cmake from scratch
-
-Only needed if you add new source files or change `CMakeLists.txt`:
-
-```bash
-source <prefix>/.envrc
-cd <path-to-this-repo>
-rm -rf build && mkdir build && cd build
-cmake .. \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo
-make -j4
 ```
 
 ---
